@@ -1,45 +1,50 @@
 "use client";
 
 import { useSession, signIn } from "next-auth/react";
+import Image from "next/image";
 import { useState, useRef, useEffect } from "react";
 import {
   FaBolt,
   FaMagic,
   FaChevronDown,
-  FaPlus,
   FaTrash,
   FaSyncAlt,
   FaVideo,
   FaMusic,
+  FaFolderOpen,
 } from "react-icons/fa";
 import { IoImageOutline } from "react-icons/io5";
 import { FiDownload } from "react-icons/fi";
 import { motion, AnimatePresence } from "framer-motion";
-import { useRouter } from "next/navigation";
 import { downloadMedia } from "@/lib/utils";
+import { ManagedAssetPicker } from "@/components/saas/ManagedAssetPicker";
+import { getEstimatedSeedanceCreditCost } from "@/lib/seedance-pricing";
 
 const ASPECT_RATIOS = [
-  { label: "16:9", value: "16:9" },
-  { label: "9:16", value: "9:16" },
+  { label: "1:1", value: "1:1" },
   { label: "4:3", value: "4:3" },
   { label: "3:4", value: "3:4" },
+  { label: "16:9", value: "16:9" },
+  { label: "9:16", value: "9:16" },
+  { label: "21:9", value: "21:9" },
 ];
 
 const RESOLUTIONS = [
   { value: "480p", label: "480p" },
   { value: "720p", label: "720p" },
+  { value: "1080p", label: "1080p" },
 ];
 
-const DURATIONS = [
-  { value: 5, label: "5 Seconds" },
-  { value: 10, label: "10 Seconds" },
-  { value: 15, label: "15 Seconds" },
-];
+const DURATIONS = Array.from({ length: 12 }, (_, i) => ({
+  value: i + 4,
+  label: `${i + 4} Seconds`,
+}));
 
-const QUALITIES = [
-  { value: "basic", label: "Basic" },
-  { value: "high", label: "High" },
+const MODELS = [
+  { value: "seedance-2.0", label: "seedance-2.0" },
+  { value: "seedance-2.0-fast", label: "seedance-2.0-fast" },
 ];
+const IMAGE_TO_VIDEO_MAX_IMAGES = 2;
 
 function CustomSelect({ label, value, options, onChange, icon: Icon }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -114,24 +119,34 @@ export default function Home() {
 
   // Form State
   const [prompt, setPrompt] = useState("");
-  const [aspectRatio, setAspectRatio] = useState(ASPECT_RATIOS[0].value);
+  const [aspectRatio, setAspectRatio] = useState("16:9");
   const [resolution, setResolution] = useState(RESOLUTIONS[1].value); // 720p default
-  const [duration, setDuration] = useState(DURATIONS[0].value);
-  const [quality, setQuality] = useState(QUALITIES[0].value);
+  const [duration, setDuration] = useState(5);
+  const [model, setModel] = useState(MODELS[0].value);
+  const [seed, setSeed] = useState("-1");
+  const [cameraFixed, setCameraFixed] = useState(false);
+  const [generateAudio, setGenerateAudio] = useState(true);
+  const creditTier = session?.user?.creditTier || "basic";
+  const canSelect1080p =
+    creditTier !== "basic" && model !== "seedance-2.0-fast";
+  const effectiveResolution =
+    resolution === "1080p" && !canSelect1080p ? "720p" : resolution;
   const [imagesList, setImagesList] = useState([]); // Max 9 URLs for I2V/Reference
   const [videoFiles, setVideoFiles] = useState([]); // Max 3 URLs for Reference
   const [audioFiles, setAudioFiles] = useState([]); // Max 3 URLs for Reference
-  const [newImageUrl, setNewImageUrl] = useState("");
-  const [newVideoUrl, setNewVideoUrl] = useState("");
-  const [newAudioUrl, setNewAudioUrl] = useState("");
+  const [referenceItems, setReferenceItems] = useState([]);
+  const [assetPickerType, setAssetPickerType] = useState(null);
 
   // UI State
   const [isUploading, setIsUploading] = useState(false);
-  const [isUploadingVideo, setIsUploadingVideo] = useState(false);
-  const [isUploadingAudio, setIsUploadingAudio] = useState(false);
+  const [isUploadingReference, setIsUploadingReference] = useState(false);
   const fileInputRef = useRef(null);
-  const videoInputRef = useRef(null);
-  const audioInputRef = useRef(null);
+  const referenceInputRef = useRef(null);
+  const promptInputRef = useRef(null);
+  const referenceOrderRef = useRef(0);
+  const [referencePickerOpen, setReferencePickerOpen] = useState(false);
+  const [referenceTriggerIndex, setReferenceTriggerIndex] = useState(null);
+  const [advancedSettingsOpen, setAdvancedSettingsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [resultUrl, setResultUrl] = useState(null);
@@ -143,17 +158,194 @@ export default function Home() {
     { id: "reference-to-video", label: "Reference", fullLabel: "Reference to Video", icon: FaSyncAlt },
   ];
 
-  const addImageToList = () => {
-    if (newImageUrl && imagesList.length < 9) {
-      setImagesList([...imagesList, newImageUrl]);
-      setNewImageUrl("");
+  const getReferencePreviewUrl = (reference) =>
+    typeof reference === "string" ? reference : reference.previewUrl;
+
+  const getReferenceDisplayName = (reference) =>
+    typeof reference === "string"
+      ? getDisplayName(reference)
+      : reference.name;
+
+  const getGenerationReference = (reference) =>
+    typeof reference === "string" ? reference : { assetId: reference.assetId };
+
+  const isManagedReference = (reference) =>
+    typeof reference !== "string" && Boolean(reference.assetId);
+
+  const getReferencesBySource = (references, source) =>
+    references
+      .map((reference, index) => ({ reference, index }))
+      .filter(({ reference }) =>
+        source === "managed"
+          ? isManagedReference(reference)
+          : !isManagedReference(reference),
+      );
+
+  const createReferenceItem = (type, reference) => ({
+    id: `${type}-${Date.now()}-${referenceOrderRef.current}`,
+    order: referenceOrderRef.current++,
+    type,
+    reference,
+  });
+
+  const removeReferenceItem = (type, index) => {
+    setReferenceItems((items) => {
+      let seen = 0;
+      return items.filter((item) => {
+        if (item.type !== type) return true;
+        if (seen === index) {
+          seen += 1;
+          return false;
+        }
+        seen += 1;
+        return true;
+      });
+    });
+  };
+
+  const getOrderedReferenceUrls = (type, fallback) => {
+    const ordered = referenceItems
+      .filter((item) => item.type === type)
+      .sort((a, b) => a.order - b.order)
+      .map((item) => item.reference);
+
+    return ordered.length === fallback.length ? ordered : fallback;
+  };
+
+  const getDisplayName = (url) => {
+    const cleanUrl = url.split(/[?#]/)[0];
+    return decodeURIComponent(cleanUrl.split("/").pop() || url);
+  };
+
+  const referenceOptions = (() => {
+    const counts = { image: 0, video: 0, audio: 0 };
+
+    return referenceItems
+      .slice()
+      .sort((a, b) => a.order - b.order)
+      .map((item) => {
+        counts[item.type] += 1;
+        const label = `${item.type}${counts[item.type]}`;
+
+        return {
+          ...item,
+          label,
+          token: `@${label}`,
+        };
+      });
+  })();
+
+  const addManagedAsset = (asset) => {
+    const type = asset.type.toLowerCase();
+    const reference = {
+      assetId: asset.id,
+      previewUrl: asset.previewUrl,
+      name: asset.name,
+    };
+    const imageLimit =
+      mode === "image-to-video" ? IMAGE_TO_VIDEO_MAX_IMAGES : 9;
+
+    if (type === "image" && imagesList.length < imageLimit) {
+      setImagesList([...imagesList, reference]);
+    } else if (type === "video" && videoFiles.length < 3) {
+      setVideoFiles([...videoFiles, reference]);
+    } else if (type === "audio" && audioFiles.length < 3) {
+      setAudioFiles([...audioFiles, reference]);
+    } else {
+      setError(`The ${type} reference limit has been reached.`);
+      setAssetPickerType(null);
+      return;
     }
+
+    setReferenceItems((items) => [...items, createReferenceItem(type, reference)]);
+    setAssetPickerType(null);
+  };
+
+  const addUploadedReference = (type, url) => {
+    if (type === "image" && imagesList.length < 9) {
+      setImagesList([...imagesList, url]);
+    } else if (type === "video" && videoFiles.length < 3) {
+      setVideoFiles([...videoFiles, url]);
+    } else if (type === "audio" && audioFiles.length < 3) {
+      setAudioFiles([...audioFiles, url]);
+    } else {
+      setError(`The ${type} reference limit has been reached.`);
+      return false;
+    }
+
+    setReferenceItems((items) => [...items, createReferenceItem(type, url)]);
+    return true;
+  };
+
+  const handleModeChange = (nextMode) => {
+    setMode(nextMode);
+
+    if (nextMode !== "reference-to-video") {
+      setReferencePickerOpen(false);
+      setReferenceTriggerIndex(null);
+    }
+
+    if (nextMode === "image-to-video") {
+      setImagesList((items) => items.slice(0, IMAGE_TO_VIDEO_MAX_IMAGES));
+      setReferenceItems((items) => {
+        let imageCount = 0;
+
+        return items.filter((item) => {
+          if (item.type !== "image") return true;
+          imageCount += 1;
+          return imageCount <= IMAGE_TO_VIDEO_MAX_IMAGES;
+        });
+      });
+    }
+  };
+
+  const handlePromptChange = (event) => {
+    const nextPrompt = event.target.value;
+    const cursorPosition = event.target.selectionStart ?? nextPrompt.length;
+
+    setPrompt(nextPrompt);
+
+    if (mode === "reference-to-video" && nextPrompt[cursorPosition - 1] === "@") {
+      setReferenceTriggerIndex(cursorPosition - 1);
+      setReferencePickerOpen(true);
+      return;
+    }
+
+    if (
+      referenceTriggerIndex !== null &&
+      nextPrompt[referenceTriggerIndex] !== "@"
+    ) {
+      setReferencePickerOpen(false);
+      setReferenceTriggerIndex(null);
+    }
+  };
+
+  const insertReferenceToken = (option) => {
+    const startIndex =
+      referenceTriggerIndex ?? promptInputRef.current?.selectionStart ?? prompt.length;
+    const before = prompt.slice(0, startIndex);
+    const after = prompt.slice(startIndex + 1);
+    const spacer = after && !after.startsWith(" ") ? " " : "";
+    const nextPrompt = `${before}${option.token}${spacer}${after}`;
+    const nextCursorPosition = before.length + option.token.length + spacer.length;
+
+    setPrompt(nextPrompt);
+    setReferencePickerOpen(false);
+    setReferenceTriggerIndex(null);
+
+    requestAnimationFrame(() => {
+      promptInputRef.current?.focus();
+      promptInputRef.current?.setSelectionRange(
+        nextCursorPosition,
+        nextCursorPosition,
+      );
+    });
   };
 
   const handleFileUpload = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    if (imagesList.length >= 9) return;
+    if (imagesList.length >= IMAGE_TO_VIDEO_MAX_IMAGES) return;
 
     try {
       setIsUploading(true);
@@ -166,7 +358,13 @@ export default function Home() {
       });
       if (!res.ok) throw new Error("Upload failed.");
       const data = await res.json();
-      if (data.url) setImagesList([...imagesList, data.url]);
+      if (data.url) {
+        setImagesList([...imagesList, data.url]);
+        setReferenceItems((items) => [
+          ...items,
+          createReferenceItem("image", data.url),
+        ]);
+      }
     } catch (err) {
       setError("Upload failed.");
     } finally {
@@ -175,38 +373,33 @@ export default function Home() {
     }
   };
 
-  const handleFileUploadVideo = async (event) => {
+  const handleReferenceUpload = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    if (videoFiles.length >= 3) return;
+    const extension = file.name.toLowerCase().split(".").pop();
+    const type = ["png", "jpg", "jpeg"].includes(extension)
+      ? "image"
+      : ["mp4", "mov"].includes(extension)
+        ? "video"
+        : ["mp3", "wav"].includes(extension)
+          ? "audio"
+          : null;
 
-    try {
-      setIsUploadingVideo(true);
-      setError(null);
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await fetch("/api/upload", {
-        method: "POST",
-        body: formData,
-      });
-      if (!res.ok) throw new Error("Video upload failed.");
-      const data = await res.json();
-      if (data.url) setVideoFiles([...videoFiles, data.url]);
-    } catch (err) {
-      setError("Video upload failed.");
-    } finally {
-      setIsUploadingVideo(false);
-      if (videoInputRef.current) videoInputRef.current.value = "";
+    if (!type) {
+      setError("Upload a supported image, video, or audio file.");
+      return;
     }
-  };
-
-  const handleFileUploadAudio = async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    if (audioFiles.length >= 3) return;
+    if (
+      (type === "image" && imagesList.length >= 9) ||
+      (type === "video" && videoFiles.length >= 3) ||
+      (type === "audio" && audioFiles.length >= 3)
+    ) {
+      setError(`The ${type} reference limit has been reached.`);
+      return;
+    }
 
     try {
-      setIsUploadingAudio(true);
+      setIsUploadingReference(true);
       setError(null);
       const formData = new FormData();
       formData.append("file", file);
@@ -214,14 +407,16 @@ export default function Home() {
         method: "POST",
         body: formData,
       });
-      if (!res.ok) throw new Error("Audio upload failed.");
+      if (!res.ok) throw new Error("Reference upload failed.");
       const data = await res.json();
-      if (data.url) setAudioFiles([...audioFiles, data.url]);
+      if (data.url) {
+        addUploadedReference(type, data.url);
+      }
     } catch (err) {
-      setError("Audio upload failed.");
+      setError("Reference upload failed.");
     } finally {
-      setIsUploadingAudio(false);
-      if (audioInputRef.current) audioInputRef.current.value = "";
+      setIsUploadingReference(false);
+      if (referenceInputRef.current) referenceInputRef.current.value = "";
     }
   };
 
@@ -241,6 +436,16 @@ export default function Home() {
     }
 
     try {
+      const orderedImagesList = getOrderedReferenceUrls("image", imagesList).map(
+        getGenerationReference,
+      );
+      const orderedVideoFiles = getOrderedReferenceUrls("video", videoFiles).map(
+        getGenerationReference,
+      );
+      const orderedAudioFiles = getOrderedReferenceUrls("audio", audioFiles).map(
+        getGenerationReference,
+      );
+
       setLoading(true);
       setError(null);
       setResultUrl(null);
@@ -253,12 +458,15 @@ export default function Home() {
           mode,
           prompt,
           aspect_ratio: aspectRatio,
-          resolution,
+          resolution: effectiveResolution,
           duration,
-          quality,
-          images_list: imagesList,
-          video_files: videoFiles,
-          audio_files: audioFiles,
+          model,
+          seed,
+          camera_fixed: cameraFixed,
+          generate_audio: generateAudio,
+          images_list: orderedImagesList,
+          video_files: orderedVideoFiles,
+          audio_files: orderedAudioFiles,
         }),
       });
 
@@ -283,12 +491,12 @@ export default function Home() {
       if (!res.ok) throw new Error(data.error || "Status check failed.");
 
       if (data.status === "completed") {
-        setResultUrl(data.imageUrl);
+        setResultUrl(data.videoUrl);
         setLoading(false);
       } else if (data.status === "failed") {
-        throw new Error("Generation failed.");
+        throw new Error(data.error || "Generation failed.");
       } else {
-        setTimeout(() => pollStatus(requestId, metadata), 3000);
+        setTimeout(() => pollStatus(requestId, metadata), 10000);
       }
     } catch (err) {
       setError(err.message);
@@ -296,462 +504,727 @@ export default function Home() {
     }
   };
 
-  const getAvailableDurations = () => {
-    if (mode === "reference-to-video") {
-      return Array.from({ length: 8 }, (_, i) => ({
-        value: i + 8,
-        label: `${i + 8} Seconds`,
-      }));
+  const availableResolutions = canSelect1080p
+    ? RESOLUTIONS
+    : RESOLUTIONS.filter((option) => option.value !== "1080p");
+
+  const handleModelChange = (nextModel) => {
+    setModel(nextModel);
+    if (nextModel === "seedance-2.0-fast" && resolution === "1080p") {
+      setResolution("720p");
     }
-    return DURATIONS;
   };
 
-  useEffect(() => {
-    const available = getAvailableDurations();
-    if (!available.find((d) => d.value === duration)) {
-      setDuration(available[0].value);
-    }
-  }, [mode]);
+  const estimatedCredit = getEstimatedSeedanceCreditCost({
+    duration,
+    resolution: effectiveResolution,
+    aspectRatio,
+    model,
+    hasVideoInput: mode === "reference-to-video" && videoFiles.length > 0,
+  });
 
-  const creditCost = (() => {
-    const isReference = mode === "reference-to-video";
-    const is720p = resolution === "720p";
-    let rate;
+  const activeMode = MODES.find((m) => m.id === mode) || MODES[0];
+  const referenceCount =
+    imagesList.length + videoFiles.length + audioFiles.length;
+  const canGenerate =
+    !loading &&
+    ((mode === "text-to-video" && prompt.trim()) ||
+      (mode === "image-to-video" && imagesList.length > 0) ||
+      (mode === "reference-to-video" && referenceCount > 0));
 
-    if (isReference) {
-      if (is720p) {
-        rate = quality === "high" ? 60 : 42;
-      } else {
-        rate = quality === "high" ? 48 : 36;
-      }
-    } else {
-      if (is720p) {
-        rate = quality === "high" ? 50 : 30;
-      } else {
-        rate = quality === "high" ? 30 : 24;
-      }
-    }
-    return Math.ceil(duration * rate);
-  })();
+  const renderImageReferences = (source, label) => {
+    const references = getReferencesBySource(imagesList, source);
+    if (references.length === 0) return null;
+
+    return (
+      <div className="space-y-2">
+        {label && (
+          <div className="text-[9px] font-semibold uppercase tracking-widest text-muted">
+            {label}
+          </div>
+        )}
+        <div className="grid grid-cols-5 gap-2">
+          {references.map(({ reference, index }) => (
+            <div
+              key={`${source}-image-${index}`}
+              className="group relative aspect-square overflow-hidden rounded-md border border-glass-border bg-white/[0.055]"
+            >
+              <Image
+                src={getReferencePreviewUrl(reference)}
+                alt={`Reference image ${index + 1}`}
+                fill
+                unoptimized
+                sizes="(max-width: 768px) 20vw, 96px"
+                className="object-cover"
+              />
+              <button
+                onClick={() => {
+                  setImagesList(imagesList.filter((_, itemIndex) => itemIndex !== index));
+                  removeReferenceItem("image", index);
+                }}
+                className="absolute right-1.5 top-1.5 hidden rounded bg-red-500/90 p-1 text-white group-hover:flex"
+                aria-label={`Remove image ${index + 1}`}
+              >
+                <FaTrash className="text-[10px]" />
+              </button>
+              <div className="absolute bottom-1 right-1 rounded bg-black/65 px-1 text-[8px] font-bold text-white">
+                @image{index + 1}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  const renderVideoReferences = (source, label) => {
+    const references = getReferencesBySource(videoFiles, source);
+    if (references.length === 0) return null;
+
+    return (
+      <div className="space-y-2">
+        {label && (
+          <div className="text-[9px] font-semibold uppercase tracking-widest text-muted">
+            {label}
+          </div>
+        )}
+        <div className="grid grid-cols-5 gap-2">
+          {references.map(({ reference, index }) => (
+            <div
+              key={`${source}-video-${index}`}
+              className="group relative aspect-square overflow-hidden rounded-md border border-glass-border bg-white/[0.055]"
+            >
+              <video
+                src={getReferencePreviewUrl(reference)}
+                className="h-full w-full object-cover"
+              />
+              <button
+                onClick={() => {
+                  setVideoFiles(videoFiles.filter((_, itemIndex) => itemIndex !== index));
+                  removeReferenceItem("video", index);
+                }}
+                className="absolute right-1.5 top-1.5 hidden rounded bg-red-500/90 p-1 text-white group-hover:flex"
+                aria-label={`Remove video ${index + 1}`}
+              >
+                <FaTrash className="text-[10px]" />
+              </button>
+              <div className="absolute bottom-1 right-1 rounded bg-black/65 px-1 text-[8px] text-white">
+                @video{index + 1}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  const renderAudioReferences = (source, label) => {
+    const references = getReferencesBySource(audioFiles, source);
+    if (references.length === 0) return null;
+
+    return (
+      <div className="space-y-2">
+        {label && (
+          <div className="text-[9px] font-semibold uppercase tracking-widest text-muted">
+            {label}
+          </div>
+        )}
+        <div className="space-y-2">
+          {references.map(({ reference, index }) => (
+            <div
+              key={`${source}-audio-${index}`}
+              className="group flex items-center justify-between gap-3 rounded-md border border-glass-border bg-white/[0.055] p-2"
+            >
+              <div className="flex min-w-0 items-center gap-2">
+                <FaMusic className="shrink-0 text-[10px] text-muted" />
+                <span className="truncate text-[10px] text-foreground">
+                  {getReferenceDisplayName(reference)}
+                </span>
+                <span className="shrink-0 text-[8px] font-bold text-primary-500">
+                  @audio{index + 1}
+                </span>
+              </div>
+              <button
+                onClick={() => {
+                  setAudioFiles(audioFiles.filter((_, itemIndex) => itemIndex !== index));
+                  removeReferenceItem("audio", index);
+                }}
+                className="text-muted transition-colors hover:text-red-500"
+                aria-label={`Remove audio ${index + 1}`}
+              >
+                <FaTrash className="text-[10px]" />
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
 
   return (
-    <div className="flex-1 w-full flex flex-col items-center p-4 md:p-8 overflow-y-auto custom-scrollbar">
-      {/* Playground Header */}
-      <div className="max-w-6xl w-full mb-10 text-center space-y-4">
-        <motion.h1
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="text-3xl md:text-5xl font-bold text-foreground tracking-tight"
-        >
-          Seedance v2.0 Playground
-        </motion.h1>
-        <motion.p
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="text-sm md:text-base text-muted max-w-2xl mx-auto leading-relaxed"
-        >
-          Experience the next generation of AI video creation. Transform your
-          text and images into high-quality cinematic videos using our advanced
-          Seedance v2.0 engine.
-        </motion.p>
-      </div>
+    <div className="relative flex-1 w-full overflow-y-auto custom-scrollbar">
+      <div className="pointer-events-none absolute inset-0 opacity-35 [background-image:linear-gradient(rgba(148,163,184,0.12)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.12)_1px,transparent_1px)] [background-size:44px_44px]" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-[radial-gradient(circle_at_50%_0%,rgba(183,255,60,0.2),transparent_58%)]" />
 
-      <div className="max-w-6xl w-full grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-        {/* Left: Controls */}
-        <div className="bg-glass-bg border border-glass-border rounded-lg p-6 flex flex-col gap-6">
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-md bg-primary-500/10 flex items-center justify-center text-primary-500">
-              <FaMagic />
-            </div>
-            <div>
-              <h2 className="text-sm font-semibold text-foreground uppercase tracking-wider">
-                Seedance Generator
-              </h2>
-              <p className="text-[10px] text-muted">Minimal Video Engine</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 p-1 bg-glass-hover rounded-md border border-glass-border">
-            {MODES.map((m) => {
-              const Icon = m.icon;
-              return (
-                <button
-                  key={m.id}
-                  onClick={() => setMode(m.id)}
-                  className={`py-2 rounded-md text-xs sm:text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
-                    mode === m.id
-                      ? "bg-primary-500 text-white shadow-sm"
-                      : "text-muted hover:text-foreground"
-                  }`}
-                >
-                  <Icon className="shrink-0" />{" "}
-                  <span className="sm:hidden">{m.label}</span>
-                  <span className="hidden sm:inline">{m.fullLabel}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-medium text-muted uppercase tracking-wider">
-                Prompt
-              </label>
-              <textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder={
-                  mode === "reference-to-video"
-                    ? "Use @image1, @video1, @audio1 to reference your files... \nExample: @video1 in the style of @image1 with @audio1"
-                    : "Describe your video..."
-                }
-                className="w-full h-32 bg-glass-bg border border-glass-border rounded-md p-2 text-sm outline-none focus:border-primary-500/40 resize-none transition-colors custom-scrollbar"
-              />
-            </div>
-
-            {mode !== "text-to-video" && (
-              <div className="space-y-3">
-                <label className="text-[10px] font-medium text-muted uppercase tracking-wider">
-                  Images ({imagesList.length}/9)
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={newImageUrl}
-                    onChange={(e) => setNewImageUrl(e.target.value)}
-                    placeholder="Image URL..."
-                    className="flex-1 bg-glass-bg border border-glass-border rounded-md px-3 py-2 text-xs outline-none focus:border-primary-500/40"
-                  />
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    hidden
-                    accept=".png, .jpg, .jpeg"
-                    onChange={handleFileUpload}
-                  />
-                  <button
-                    onClick={() => {
-                      if (!session) {
-                        signIn();
-                        return;
-                      }
-                      fileInputRef.current?.click();
-                    }}
-                    disabled={isUploading || imagesList.length >= 9}
-                    className="w-9 h-9 bg-primary-500/10 border border-primary-500/20 text-primary-500 rounded-md flex items-center justify-center hover:bg-primary-500 hover:text-white transition-colors"
-                  >
-                    {isUploading ? (
-                      <div className="w-4 h-4 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
-                    ) : (
-                      <IoImageOutline />
-                    )}
-                  </button>
-                  <button
-                    onClick={addImageToList}
-                    disabled={!newImageUrl || imagesList.length >= 9}
-                    className="w-9 h-9 bg-glass-bg border border-glass-border text-primary-500 rounded-md flex items-center justify-center hover:bg-primary-500 hover:text-white transition-colors"
-                  >
-                    <FaPlus />
-                  </button>
-                </div>
-                {imagesList.length > 0 && (
-                  <div className="grid grid-cols-5 gap-2">
-                    {imagesList.map((url, idx) => (
-                      <div
-                        key={idx}
-                        className="relative aspect-square rounded-md bg-glass-bg overflow-hidden group border border-glass-border"
-                      >
-                        <img src={url} className="w-full h-full object-cover" />
-                        <button
-                          onClick={() =>
-                            setImagesList(
-                              imagesList.filter((_, i) => i !== idx),
-                            )
-                          }
-                          className="absolute top-2 right-2 p-1 rounded bg-red-500/90 items-center justify-center hidden group-hover:flex"
-                        >
-                          <FaTrash className="text-white text-[10px]" />
-                        </button>
-                        <div className="absolute bottom-1 right-1 bg-black/60 px-1 rounded text-[8px] text-white font-bold">
-                          @image{idx + 1}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-            {mode === "reference-to-video" && (
-              <div className="space-y-6 pt-4 border-t border-glass-border">
-                <div className="space-y-3">
-                  <label className="text-[10px] font-medium text-muted uppercase tracking-wider">
-                    Video Clips ({videoFiles.length}/3)
-                  </label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={newVideoUrl}
-                      onChange={(e) => setNewVideoUrl(e.target.value)}
-                      placeholder="Video URL..."
-                      className="flex-1 bg-glass-bg border border-glass-border rounded-md px-3 py-2 text-xs outline-none focus:border-primary-500/40"
-                    />
-                    <input
-                      type="file"
-                      ref={videoInputRef}
-                      hidden
-                      accept=".mp4"
-                      onChange={handleFileUploadVideo}
-                    />
-                    <button
-                      onClick={() => {
-                        if (!session) {
-                          signIn();
-                          return;
-                        }
-                        videoInputRef.current?.click();
-                      }}
-                      disabled={isUploadingVideo || videoFiles.length >= 3}
-                      className="w-9 h-9 bg-primary-500/10 border border-primary-500/20 text-primary-500 rounded-md flex items-center justify-center hover:bg-primary-500 hover:text-white transition-colors"
-                    >
-                      {isUploadingVideo ? (
-                        <div className="w-4 h-4 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
-                      ) : (
-                        <FaVideo />
-                      )}
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (newVideoUrl && videoFiles.length < 3) {
-                          setVideoFiles([...videoFiles, newVideoUrl]);
-                          setNewVideoUrl("");
-                        }
-                      }}
-                      disabled={!newVideoUrl || videoFiles.length >= 3}
-                      className="w-9 h-9 bg-glass-bg border border-glass-border text-primary-500 rounded-md flex items-center justify-center hover:bg-primary-500 hover:text-white transition-colors"
-                    >
-                      <FaPlus />
-                    </button>
-                  </div>
-                  {videoFiles.length > 0 && (
-                    <div className="grid grid-cols-5 gap-2">
-                      {videoFiles.map((url, idx) => (
-                        <div
-                          key={idx}
-                          className="relative aspect-square rounded-md bg-glass-bg overflow-hidden group border border-glass-border"
-                        >
-                          <video
-                            src={url}
-                            className="w-full h-full object-cover"
-                          />
-                          <button
-                            onClick={() =>
-                              setVideoFiles(
-                                videoFiles.filter((_, i) => i !== idx),
-                              )
-                            }
-                            className="absolute top-2 right-2 p-1 rounded bg-red-500/80 items-center justify-center hidden group-hover:flex"
-                          >
-                            <FaTrash className="text-white text-[10px]" />
-                          </button>
-                          <div className="absolute bottom-1 right-1 bg-black/60 px-1 rounded text-[8px] text-white">
-                            @video{idx + 1}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <div className="space-y-3">
-                  <label className="text-[10px] font-medium text-muted uppercase tracking-wider">
-                    Audio Clips ({audioFiles.length}/3)
-                  </label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={newAudioUrl}
-                      onChange={(e) => setNewAudioUrl(e.target.value)}
-                      placeholder="Audio URL..."
-                      className="flex-1 bg-glass-bg border border-glass-border rounded-md px-3 py-2 text-xs outline-none focus:border-primary-500/40"
-                    />
-                    <input
-                      type="file"
-                      ref={audioInputRef}
-                      hidden
-                      accept=".mp3,.wav"
-                      onChange={handleFileUploadAudio}
-                    />
-                    <button
-                      onClick={() => {
-                        if (!session) {
-                          signIn();
-                          return;
-                        }
-                        audioInputRef.current?.click();
-                      }}
-                      disabled={isUploadingAudio || audioFiles.length >= 3}
-                      className="w-9 h-9 bg-primary-500/10 border border-primary-500/20 text-primary-500 rounded-md flex items-center justify-center hover:bg-primary-500 hover:text-white transition-colors"
-                    >
-                      {isUploadingAudio ? (
-                        <div className="w-4 h-4 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
-                      ) : (
-                        <FaMusic />
-                      )}
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (newAudioUrl && audioFiles.length < 3) {
-                          setAudioFiles([...audioFiles, newAudioUrl]);
-                          setNewAudioUrl("");
-                        }
-                      }}
-                      disabled={!newAudioUrl || audioFiles.length >= 3}
-                      className="w-9 h-9 bg-glass-bg border border-glass-border text-primary-500 rounded-md flex items-center justify-center hover:bg-primary-500 hover:text-white transition-colors"
-                    >
-                      <FaPlus />
-                    </button>
-                  </div>
-                  {audioFiles.length > 0 && (
-                    <div className="space-y-2">
-                      {audioFiles.map((url, idx) => (
-                        <div
-                          key={idx}
-                          className="flex items-center justify-between p-2 rounded-md bg-glass-bg border border-glass-border group"
-                        >
-                          <div className="flex items-center gap-2 truncate">
-                            <FaMusic className="text-muted text-[10px]" />
-                            <span className="text-[10px] text-foreground truncate">
-                              {url.split("/").pop()}
-                            </span>
-                            <span className="text-[8px] text-primary-500 font-bold">
-                              @audio{idx + 1}
-                            </span>
-                          </div>
-                          <button
-                            onClick={() =>
-                              setAudioFiles(
-                                audioFiles.filter((_, i) => i !== idx),
-                              )
-                            }
-                            className="text-muted hover:text-red-500"
-                          >
-                            <FaTrash className="text-[10px]" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-4">
-              <CustomSelect
-                label="Aspect Ratio"
-                value={aspectRatio}
-                options={ASPECT_RATIOS}
-                onChange={setAspectRatio}
-              />
-              <CustomSelect
-                label="Resolution"
-                value={resolution}
-                options={RESOLUTIONS}
-                onChange={setResolution}
-              />
-              <CustomSelect
-                label="Duration"
-                value={duration}
-                options={getAvailableDurations()}
-                onChange={setDuration}
-              />
-              <CustomSelect
-                label="Quality"
-                value={quality}
-                options={QUALITIES}
-                onChange={setQuality}
-              />
-            </div>
-          </div>
-
-          <button
-            onClick={handleGenerate}
-            disabled={
-              loading ||
-              (mode === "text-to-video" && !prompt.trim()) ||
-              (mode !== "text-to-video" && imagesList.length === 0)
-            }
-            className="w-full bg-primary-500 text-white rounded-md py-2 text-sm font-medium hover:bg-primary-600 active:scale-[0.98] transition-all disabled:opacity-60"
+      <main className="relative mx-auto flex min-h-full w-full max-w-7xl flex-col gap-6 px-4 py-5 md:px-8 md:py-8">
+        <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="max-w-3xl space-y-4"
           >
-            {loading ? (
-              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mx-auto" />
-            ) : (
-              `Generate (${creditCost} Credits)`
-            )}
-          </button>
+            <div className="inline-flex items-center gap-2 rounded-full border border-secondary-500/30 bg-secondary-500/10 px-3 py-1.5 text-[10px] font-semibold uppercase text-secondary-500 shadow-sm backdrop-blur-2xl">
+              <span className="h-1.5 w-1.5 rounded-full bg-secondary-500 shadow-[0_0_16px_var(--secondary-500)]" />
+              Universal Engine
+            </div>
+            <div className="space-y-3">
+              <h1 className="max-w-3xl text-4xl font-semibold leading-[1.04] text-foreground md:text-6xl">
+                Seedance X video center
+              </h1>
+              <p className="max-w-2xl text-sm leading-7 text-muted md:text-base">
+                Compose cinematic video from text, images, and reference media
+                inside a sharper generation workspace.
+              </p>
+            </div>
+          </motion.div>
 
-          {error && (
-            <p className="text-[10px] text-red-500 font-medium text-center">
-              {error}
-            </p>
-          )}
-        </div>
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.08 }}
+            className="grid grid-cols-3 gap-2 rounded-lg border border-glass-border bg-glass-bg p-2 shadow-2xl shadow-black/20 backdrop-blur-2xl sm:min-w-[360px]"
+          >
+            <div className="rounded-md bg-white/[0.055] p-3">
+              <div className="text-[10px] font-medium uppercase text-muted">
+                Mode
+              </div>
+              <div className="mt-1 truncate text-sm font-semibold text-foreground">
+                {activeMode.label}
+              </div>
+            </div>
+            <div className="rounded-md bg-white/[0.055] p-3">
+              <div className="text-[10px] font-medium uppercase text-muted">
+                Output
+              </div>
+              <div className="mt-1 text-sm font-semibold text-foreground">
+                {effectiveResolution}
+              </div>
+            </div>
+            <div className="rounded-md bg-white/[0.055] p-3">
+              <div className="text-[10px] font-medium uppercase text-muted">
+                Cost
+              </div>
+              <div className="mt-1 text-sm font-semibold text-foreground">
+                {estimatedCredit} CR
+              </div>
+            </div>
+          </motion.div>
+        </section>
 
-        {/* Right: Preview */}
-        <div className="bg-glass-bg border border-glass-border rounded-lg p-6 flex flex-col gap-4 min-h-[500px]">
-          <h2 className="text-[10px] font-medium text-muted uppercase tracking-wider">
-            Preview
-          </h2>
-          <div className="flex-1 flex flex-col items-center justify-center bg-glass-hover rounded-md border border-glass-border relative overflow-hidden group">
-            {resultUrl ? (
-              <div className="w-full h-full flex flex-col items-center justify-center p-4 gap-4">
-                <div className="relative w-full aspect-video rounded-md overflow-hidden bg-black shadow-inner">
-                  <video
-                    src={resultUrl}
-                    className="w-full h-full object-contain"
-                    controls
-                    autoPlay
-                    muted
-                    loop
-                    playsInline
-                  />
-                  <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                    <button
-                      onClick={() =>
-                        downloadMedia(resultUrl, `seedance-${Date.now()}.mp4`)
+        <section className="grid flex-1 gap-6 lg:grid-cols-[minmax(360px,0.88fr)_minmax(0,1.12fr)]">
+          {/* Left: Controls */}
+          <div className="flex flex-col gap-5 rounded-xl border border-glass-border bg-[linear-gradient(135deg,rgba(12,18,32,0.9),rgba(7,11,20,0.72))] p-4 shadow-2xl shadow-black/30 backdrop-blur-3xl md:p-6">
+            <div className="flex items-start justify-between gap-4 border-b border-glass-border pb-5">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-slate-950 text-white shadow-xl shadow-primary-500/20">
+                  <FaMagic />
+                </div>
+                <div>
+                  <h2 className="text-base font-semibold text-foreground">
+                    Seedance Generator
+                  </h2>
+                  <p className="mt-1 text-xs text-muted">
+                    {activeMode.fullLabel}
+                  </p>
+                </div>
+              </div>
+              <div className="rounded-full border border-secondary-500/25 bg-secondary-500/10 px-3 py-1 text-[10px] font-semibold uppercase text-secondary-500">
+                Live
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 rounded-lg border border-glass-border bg-white/[0.045] p-1.5">
+              {MODES.map((m) => {
+                const Icon = m.icon;
+                return (
+                  <button
+                    key={m.id}
+                    onClick={() => handleModeChange(m.id)}
+                    className={`flex min-h-11 items-center justify-center gap-2 rounded-md px-2 text-xs font-semibold transition-all ${
+                      mode === m.id
+                        ? "bg-[linear-gradient(135deg,var(--secondary-500),var(--primary-500))] text-white shadow-lg shadow-secondary-500/15"
+                        : "text-muted hover:bg-white/[0.07] hover:text-foreground"
+                    }`}
+                  >
+                    <Icon className="shrink-0 text-[13px]" />
+                    <span className="sm:hidden">{m.label}</span>
+                    <span className="hidden sm:inline">{m.fullLabel}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="space-y-5">
+              <div className="space-y-2">
+                <label className="text-[10px] font-semibold uppercase text-muted">
+                  Prompt
+                </label>
+                <div className="relative">
+                  <textarea
+                    ref={promptInputRef}
+                    value={prompt}
+                    onChange={handlePromptChange}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") {
+                        setReferencePickerOpen(false);
+                        setReferenceTriggerIndex(null);
                       }
-                      className="p-3 bg-white/90 hover:bg-white text-black rounded-full shadow-2xl transition-all hover:scale-110 active:scale-90"
+                    }}
+                    placeholder={
+                      mode === "reference-to-video"
+                        ? "Type @ to reference uploaded files...\nExample: @video1 in the style of @image1 with @audio1"
+                        : "Describe camera motion, scene, subject, and visual atmosphere..."
+                    }
+                    className="h-40 w-full resize-none rounded-lg border border-glass-border bg-white/[0.055] p-4 text-sm leading-6 text-foreground outline-none transition-colors placeholder:text-muted/60 focus:border-secondary-500/60 custom-scrollbar"
+                  />
+                  <AnimatePresence>
+                    {mode === "reference-to-video" && referencePickerOpen && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 6 }}
+                        className="absolute left-3 right-3 top-12 z-50 overflow-hidden rounded-lg border border-glass-border bg-[rgba(7,16,6,0.96)] shadow-2xl shadow-black/40 backdrop-blur-2xl"
+                      >
+                        <div className="border-b border-glass-border px-3 py-2 text-[10px] font-semibold uppercase text-muted">
+                          Reference files
+                        </div>
+                        {referenceOptions.length === 0 ? (
+                          <div className="px-3 py-4 text-xs text-muted">
+                            Upload or select a reference file first.
+                          </div>
+                        ) : (
+                          <div className="max-h-56 overflow-y-auto custom-scrollbar p-1">
+                            {referenceOptions.map((option) => {
+                              const Icon =
+                                option.type === "image"
+                                  ? IoImageOutline
+                                  : option.type === "video"
+                                    ? FaVideo
+                                    : FaMusic;
+
+                              return (
+                                <button
+                                  key={option.id}
+                                  type="button"
+                                  onMouseDown={(event) => {
+                                    event.preventDefault();
+                                    insertReferenceToken(option);
+                                  }}
+                                  className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors hover:bg-glass-hover"
+                                >
+                                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-secondary-500/20 bg-secondary-500/10 text-secondary-500">
+                                    <Icon className="text-sm" />
+                                  </span>
+                                  <span className="min-w-0 flex-1">
+                                    <span className="block text-xs font-semibold text-foreground">
+                                      {option.token}
+                                    </span>
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </div>
+
+              {mode === "image-to-video" && (
+                <div className="space-y-3 border-t border-glass-border pt-5">
+                  <div className="flex items-center justify-between gap-3">
+                    <label className="text-[10px] font-semibold uppercase text-muted">
+                      Images
+                    </label>
+                    <span className="text-[10px] font-medium text-muted">
+                      {imagesList.length}/{IMAGE_TO_VIDEO_MAX_IMAGES}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      hidden
+                      accept=".png, .jpg, .jpeg"
+                      onChange={handleFileUpload}
+                    />
+                    <button
+                      onClick={() => {
+                        if (!session) {
+                          signIn();
+                          return;
+                        }
+                        fileInputRef.current?.click();
+                      }}
+                      disabled={
+                        isUploading ||
+                        imagesList.length >= IMAGE_TO_VIDEO_MAX_IMAGES
+                      }
+                      className="flex h-10 items-center justify-center gap-2 rounded-md border border-secondary-500/25 bg-secondary-500/10 px-3 text-[10px] font-semibold uppercase tracking-wider text-secondary-500 transition-colors hover:bg-secondary-500 hover:text-slate-950 disabled:opacity-50"
+                      aria-label="Upload image"
                     >
-                      <FiDownload className="text-xl" />
+                      {isUploading ? (
+                        <div className="h-4 w-4 rounded-full border-2 border-secondary-500 border-t-transparent animate-spin" />
+                      ) : (
+                        <IoImageOutline />
+                      )}
+                      Upload
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (!session) {
+                          signIn();
+                          return;
+                        }
+                        setAssetPickerType("Image");
+                      }}
+                      disabled={
+                        imagesList.length >= IMAGE_TO_VIDEO_MAX_IMAGES
+                      }
+                      className="flex h-10 items-center justify-center gap-2 rounded-md border border-glass-border bg-white/[0.055] px-3 text-[10px] font-semibold uppercase tracking-wider text-secondary-500 transition-colors hover:bg-secondary-500 hover:text-slate-950 disabled:opacity-50"
+                    >
+                      <FaFolderOpen />
+                      My Assets
                     </button>
                   </div>
+                  {renderImageReferences("uploaded", "Uploaded Files")}
+                  {renderImageReferences("managed", "My Assets")}
                 </div>
-                <div className="flex gap-2">
-                  <span className="px-2 py-1 bg-primary-500/10 text-primary-500 text-[10px] font-medium rounded uppercase">
-                    {aspectRatio}
-                  </span>
-                  <span className="px-2 py-1 bg-glass-hover text-muted text-[10px] font-medium rounded uppercase">
-                    {resolution}
-                  </span>
+              )}
+
+              {mode === "reference-to-video" && (
+                <div className="space-y-5 border-t border-glass-border pt-5">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <label className="text-[10px] font-semibold uppercase text-muted">
+                        Reference Media
+                      </label>
+                      <span className="text-[10px] font-medium text-muted">
+                        {referenceCount} selected
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        type="file"
+                        ref={referenceInputRef}
+                        hidden
+                        accept=".png,.jpg,.jpeg,.mp4,.mov,.mp3,.wav"
+                        onChange={handleReferenceUpload}
+                      />
+                      <button
+                        onClick={() => {
+                          if (!session) {
+                            signIn();
+                            return;
+                          }
+                          referenceInputRef.current?.click();
+                        }}
+                        disabled={isUploadingReference}
+                        className="flex h-10 items-center justify-center gap-2 rounded-md border border-secondary-500/25 bg-secondary-500/10 px-3 text-[10px] font-semibold uppercase tracking-wider text-secondary-500 transition-colors hover:bg-secondary-500 hover:text-slate-950 disabled:opacity-50"
+                        aria-label="Upload reference media"
+                      >
+                        {isUploadingReference ? (
+                          <div className="h-4 w-4 rounded-full border-2 border-secondary-500 border-t-transparent animate-spin" />
+                        ) : (
+                          <FaSyncAlt />
+                        )}
+                        Upload
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (!session) {
+                            signIn();
+                            return;
+                          }
+                          setAssetPickerType("All");
+                        }}
+                        className="flex h-10 items-center justify-center gap-2 rounded-md border border-glass-border bg-white/[0.055] px-3 text-[10px] font-semibold uppercase tracking-wider text-secondary-500 transition-colors hover:bg-secondary-500 hover:text-slate-950"
+                      >
+                        <FaFolderOpen />
+                        My Assets
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <label className="text-[10px] font-semibold uppercase text-muted">
+                        Images
+                      </label>
+                      <span className="text-[10px] font-medium text-muted">
+                        {imagesList.length}/9
+                      </span>
+                    </div>
+                    {imagesList.length === 0 && (
+                      <p className="text-[11px] text-muted">No image references selected.</p>
+                    )}
+                    {renderImageReferences("uploaded")}
+                    {renderImageReferences("managed", "My Assets")}
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <label className="text-[10px] font-semibold uppercase text-muted">
+                        Video Clips
+                      </label>
+                      <span className="text-[10px] font-medium text-muted">
+                        {videoFiles.length}/3
+                      </span>
+                    </div>
+                    {videoFiles.length === 0 && (
+                      <p className="text-[11px] text-muted">No video references selected.</p>
+                    )}
+                    {renderVideoReferences("uploaded")}
+                    {renderVideoReferences("managed", "My Assets")}
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <label className="text-[10px] font-semibold uppercase text-muted">
+                        Audio Clips
+                      </label>
+                      <span className="text-[10px] font-medium text-muted">
+                        {audioFiles.length}/3
+                      </span>
+                    </div>
+                    {audioFiles.length === 0 && (
+                      <p className="text-[11px] text-muted">No audio references selected.</p>
+                    )}
+                    {renderAudioReferences("uploaded")}
+                    {renderAudioReferences("managed", "My Assets")}
+                  </div>
                 </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3 border-t border-glass-border pt-5">
+                <CustomSelect
+                  label="Aspect Ratio"
+                  value={aspectRatio}
+                  options={ASPECT_RATIOS}
+                  onChange={setAspectRatio}
+                />
+                <CustomSelect
+                  label="Resolution"
+                  value={effectiveResolution}
+                  options={availableResolutions}
+                  onChange={setResolution}
+                />
+                <CustomSelect
+                  label="Duration"
+                  value={duration}
+                  options={DURATIONS}
+                  onChange={setDuration}
+                />
+                <CustomSelect
+                  label="Model"
+                  value={model}
+                  options={MODELS}
+                  onChange={handleModelChange}
+                />
               </div>
-            ) : loading ? (
-              <div className="flex flex-col items-center gap-4">
-                <div className="w-10 h-10 border-2 border-primary-500/20 border-t-primary-500 rounded-full animate-spin" />
-                <p className="text-[10px] font-medium text-muted uppercase tracking-widest animate-pulse">
-                  {statusMessage}
+              <div className="border-t border-glass-border pt-5">
+                <button
+                  type="button"
+                  onClick={() => setAdvancedSettingsOpen((isOpen) => !isOpen)}
+                  className="flex w-full items-center justify-between text-left text-[10px] font-semibold uppercase tracking-wider text-muted transition-colors hover:text-foreground"
+                  aria-expanded={advancedSettingsOpen}
+                >
+                  Advanced Settings
+                  <FaChevronDown
+                    className={`text-[10px] transition-transform ${
+                      advancedSettingsOpen ? "rotate-180" : ""
+                    }`}
+                  />
+                </button>
+                <AnimatePresence initial={false}>
+                  {advancedSettingsOpen && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="space-y-4 pt-4">
+                        <label className="block space-y-1.5">
+                          <span className="text-[10px] font-medium uppercase tracking-wider text-muted">
+                            Seed
+                          </span>
+                          <input
+                            type="number"
+                            step="1"
+                            value={seed}
+                            onChange={(event) => setSeed(event.target.value)}
+                            className="w-full rounded-md border border-glass-border bg-glass-bg px-3 py-2 text-xs font-medium text-foreground outline-none transition-colors hover:bg-glass-hover focus:border-primary-500"
+                          />
+                        </label>
+                        <label className="flex cursor-pointer items-center justify-between gap-3 text-xs font-medium text-foreground">
+                          Camera Fixed
+                          <input
+                            type="checkbox"
+                            checked={cameraFixed}
+                            onChange={(event) =>
+                              setCameraFixed(event.target.checked)
+                            }
+                            className="h-4 w-4 accent-primary-500"
+                          />
+                        </label>
+                        <label className="flex cursor-pointer items-center justify-between gap-3 text-xs font-medium text-foreground">
+                          Generate Audio
+                          <input
+                            type="checkbox"
+                            checked={generateAudio}
+                            onChange={(event) =>
+                              setGenerateAudio(event.target.checked)
+                            }
+                            className="h-4 w-4 accent-primary-500"
+                          />
+                        </label>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </div>
+
+            <div className="mt-auto space-y-3 border-t border-glass-border pt-5">
+              <button
+                onClick={handleGenerate}
+                disabled={!canGenerate}
+                className="group flex w-full items-center justify-center gap-3 rounded-lg bg-[linear-gradient(135deg,var(--secondary-500),var(--primary-500))] py-3 text-sm font-semibold text-white shadow-xl shadow-secondary-500/20 transition-all hover:brightness-110 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {loading ? (
+                  <div className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                ) : (
+                  <>
+                    Generate
+                  <span className="rounded-full bg-slate-950/25 px-2 py-0.5 text-[10px]">
+                      {estimatedCredit} Credits
+                    </span>
+                  </>
+                )}
+              </button>
+
+              {error && (
+                <p className="rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-center text-[11px] font-medium text-red-600">
+                  {error}
                 </p>
-              </div>
-            ) : (
-              <div className="text-center p-8 space-y-3">
-                <FaMagic className="text-2xl opacity-30 mx-auto" />
-                <p className="text-[10px] text-muted uppercase tracking-widest font-medium">
-                  Video Preview
-                </p>
-              </div>
-            )}
+              )}
+            </div>
           </div>
-        </div>
-      </div>
+
+          {/* Right: Preview */}
+          <div className="flex min-h-[560px] flex-col overflow-hidden rounded-xl border border-glass-border bg-[#030805] text-white shadow-2xl shadow-black/35">
+            <div className="flex items-center justify-between gap-4 border-b border-white/10 px-4 py-3 md:px-5">
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-md border border-secondary-500/25 bg-secondary-500/10 text-secondary-500">
+                  <FaBolt />
+                </div>
+                <div>
+                  <h2 className="text-sm font-semibold">Preview Stream</h2>
+                  <p className="mt-0.5 text-[11px] text-slate-400">
+                    {resultUrl
+                      ? "Generation complete"
+                      : loading
+                        ? statusMessage
+                        : "Awaiting render"}
+                  </p>
+                </div>
+              </div>
+              <div className="hidden items-center gap-2 sm:flex">
+                <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] text-slate-300">
+                  {aspectRatio}
+                </span>
+                <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] text-slate-300">
+                  {effectiveResolution}
+                </span>
+              </div>
+            </div>
+
+            <div className="group relative flex flex-1 items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_50%_32%,rgba(183,255,60,0.18),transparent_34%),linear-gradient(145deg,#020402,#071407_60%,#102006)] p-4 md:p-6">
+              <div className="pointer-events-none absolute inset-0 opacity-25 [background-image:linear-gradient(rgba(255,255,255,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.08)_1px,transparent_1px)] [background-size:36px_36px]" />
+              <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,transparent,rgba(183,255,60,0.12))]" />
+
+              {resultUrl ? (
+                <div className="relative z-10 flex h-full w-full flex-col items-center justify-center gap-5">
+                  <div className="relative w-full overflow-hidden rounded-lg border border-white/10 bg-black shadow-2xl">
+                    <video
+                      src={resultUrl}
+                      className="aspect-video h-full w-full object-contain"
+                      controls
+                      autoPlay
+                      muted
+                      loop
+                      playsInline
+                    />
+                    <div className="absolute right-4 top-4 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100">
+                      <button
+                        onClick={() =>
+                          downloadMedia(resultUrl, `seedance-${Date.now()}.mp4`)
+                        }
+                        className="rounded-full bg-white p-3 text-slate-950 shadow-2xl transition-transform hover:scale-105 active:scale-95"
+                        aria-label="Download generated video"
+                      >
+                        <FiDownload className="text-xl" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    <span className="rounded-full border border-primary-400/20 bg-primary-500/15 px-3 py-1 text-[10px] font-medium text-primary-200">
+                      {activeMode.fullLabel}
+                    </span>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] font-medium text-slate-300">
+                      {model}
+                    </span>
+                  </div>
+                </div>
+              ) : loading ? (
+                <div className="relative z-10 flex flex-col items-center gap-5 text-center">
+                  <div className="relative flex h-20 w-20 items-center justify-center">
+                    <div className="absolute inset-0 rounded-full border border-primary-400/20" />
+                    <div className="h-16 w-16 rounded-full border-2 border-primary-400/20 border-t-primary-400 animate-spin" />
+                    <FaMagic className="absolute text-primary-300" />
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-sm font-semibold">{statusMessage}</p>
+                    <p className="text-xs text-slate-400">
+                      Seedance X is synthesizing your timeline.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="relative z-10 flex max-w-sm flex-col items-center gap-4 text-center">
+                  <div className="flex h-20 w-20 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-primary-300 shadow-2xl">
+                    <FaMagic className="text-2xl" />
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-base font-semibold">Video Preview</p>
+                    <p className="text-sm leading-6 text-slate-400">
+                      Your generated clip will appear here with playback and
+                      download controls.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      </main>
+      <ManagedAssetPicker
+        type={assetPickerType}
+        onClose={() => setAssetPickerType(null)}
+        onSelect={addManagedAsset}
+      />
       <style jsx global>{`
         .custom-scrollbar::-webkit-scrollbar {
           width: 0px;

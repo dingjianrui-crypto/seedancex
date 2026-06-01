@@ -28,6 +28,7 @@ export function Navbar() {
   const navLinks = [
     { name: "Generation", href: "/" },
     { name: "Gallery", href: "/creations" },
+    { name: "Assets", href: "/assets" },
     { name: "Pricing", href: "/pricing" },
   ];
 
@@ -40,7 +41,7 @@ export function Navbar() {
         </div>
         <div className="flex flex-col">
           <span className="font-black text-lg tracking-tighter leading-none italic uppercase text-foreground drop-shadow-sm">
-            SEEDANCE V2.0
+            SEEDANCE - X
           </span>
           <span className="text-[10px] font-black tracking-[0.3em] text-primary-500/80 uppercase">
             Universal Engine
@@ -126,16 +127,6 @@ export function Navbar() {
             />
           </div>
         )}
-
-        <a 
-          href="https://vercel.com/new/clone?repository-url=https://github.com/SamurAIGPT/seedance-2-generator"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="hidden sm:flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white hover:bg-slate-800 transition-all font-bold text-[10px] tracking-widest uppercase shadow-lg shadow-slate-900/10"
-        >
-          <SiVercel className="text-xs" />
-          Deploy
-        </a>
 
 
         {/* Mobile menu toggle */}

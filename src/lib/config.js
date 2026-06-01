@@ -27,22 +27,30 @@ const config = {
   },
   ai: {
     seedance: {
-      apiKey: process.env.SEEDANCE_V2_API_KEY,
-      endpoints: {
-        t2v: {
-          "480p": "https://api.muapi.ai/api/v1/seedance-2.0-t2v-480p",
-          "720p": "https://api.muapi.ai/api/v1/seedance-v2.0-t2v"
-        },
-        i2v: {
-          "480p": "https://api.muapi.ai/api/v1/seedance-2.0-i2v-480p",
-          "720p": "https://api.muapi.ai/api/v1/seedance-v2.0-i2v"
-        },
-        reference: {
-          "480p": "https://api.muapi.ai/api/v1/seedance-2.0-omni-reference-480p",
-          "720p": "https://api.muapi.ai/api/v1/seedance-2.0-omni-reference"
-        }
-      }
+      apiKey: process.env.ARK_API_KEY || process.env.SEEDANCE_V2_API_KEY,
+      endpoint: process.env.SEEDANCE_ENDPOINT,
+      models: {
+        "seedance-2.0": process.env.SEEDANCE_MODEL || "dreamina-seedance-2-0-260128",
+        "seedance-2.0-fast":
+          process.env.SEEDANCE_FAST_MODEL || "dreamina-seedance-2-0-fast-260128",
+      },
     }
+  },
+  storage: {
+    vercelBlobReadWriteToken: process.env.BLOB_READ_WRITE_TOKEN,
+  },
+  assets: {
+    accessKeyId: process.env.VOLCENGINE_ACCESS_KEY_ID,
+    secretAccessKey: process.env.VOLCENGINE_SECRET_ACCESS_KEY,
+    groupId: process.env.VOLCENGINE_ASSET_GROUP_ID,
+    projectName: process.env.VOLCENGINE_PROJECT_NAME || "default",
+    host:
+      process.env.VOLCENGINE_ASSET_HOST ||
+      "ark.cn-beijing.volcengineapi.com",
+    region: process.env.VOLCENGINE_ASSET_REGION || "cn-beijing",
+    service: "ark",
+    version: "2024-01-01",
+    reconcileSecret: process.env.ASSET_RECONCILE_SECRET,
   },
   db: {
     url: process.env.DATABASE_URL,
@@ -55,6 +63,11 @@ const requiredKeys = [
   ["GOOGLE_CLIENT_SECRET", config.auth.google.clientSecret],
   ["STRIPE_SECRET_KEY", config.stripe.secretKey],
   ["DATABASE_URL", config.db.url],
+  ["SEEDANCE_ENDPOINT", config.ai.seedance.endpoint],
+  ["BLOB_READ_WRITE_TOKEN", config.storage.vercelBlobReadWriteToken],
+  ["VOLCENGINE_ACCESS_KEY_ID", config.assets.accessKeyId],
+  ["VOLCENGINE_SECRET_ACCESS_KEY", config.assets.secretAccessKey],
+  ["VOLCENGINE_ASSET_GROUP_ID", config.assets.groupId],
 ];
 
 if (typeof window === "undefined") {

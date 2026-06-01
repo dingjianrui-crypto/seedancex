@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
-import config from "@/lib/config";
+import { StorageService } from "@/lib/storage";
+
+export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export async function POST(req) {
   try {
@@ -18,30 +21,17 @@ export async function POST(req) {
       return new NextResponse("No file provided", { status: 400 });
     }
 
-    const apiKey = config.ai.seedance.apiKey;
-    if (!apiKey) {
-      return new NextResponse("API Key not configured", { status: 500 });
-    }
-
-    // Prepare for MuAPI
-    const muapiFormData = new FormData();
-    muapiFormData.append("file", file);
-
-    const response = await fetch("https://api.muapi.ai/api/v1/upload_file", {
-      method: "POST",
-      headers: {
-        "x-api-key": apiKey,
-      },
-      body: muapiFormData,
+    const blob = await StorageService.uploadUserFile({
+      userId: session.user.id,
+      file,
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`MuAPI Upload Failed: ${response.status} ${errorText}`);
-    }
-
-    const data = await response.json();
-    return NextResponse.json(data);
+    return NextResponse.json({
+      url: blob.url,
+      pathname: blob.pathname,
+      contentType: blob.contentType,
+      size: file.size,
+    });
   } catch (error) {
     console.error("[UPLOAD_ERROR]", error);
     return new NextResponse(error.message || "Internal Error", { status: 500 });

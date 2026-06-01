@@ -12,46 +12,39 @@ export async function POST(req) {
     }
 
     const body = await req.json();
-    const { mode, prompt, aspect_ratio, resolution, duration, quality, model, images_list } = body;
+    const { mode, prompt, aspect_ratio, resolution, duration, model, seed, camera_fixed, generate_audio, images_list, video_files, audio_files } = body;
 
-    if (!prompt && mode === 'text-to-video') {
+    if (!prompt) {
       return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
     }
 
-    let result;
-    if (mode === "reference-to-video") {
-      result = await AIService.edit(session.user.id, {
-        mode,
-        prompt,
-        images_list,
-        aspect_ratio,
-        resolution,
-        duration,
-        quality,
-        model
-      });
-    } else {
-      result = await AIService.generate(session.user.id, {
-        mode,
-        prompt,
-        aspect_ratio,
-        resolution,
-        duration,
-        quality,
-        model,
-        images_list
-      });
-    }
+    const result = await AIService.generate(session.user.id, {
+      prompt,
+      mode,
+      aspect_ratio,
+      resolution,
+      duration,
+      model,
+      seed,
+      camera_fixed,
+      generate_audio,
+      images_list,
+      video_files,
+      audio_files,
+    });
 
     return NextResponse.json({
       ...result,
-      metadata: { prompt, aspect_ratio, resolution }
+      metadata: { prompt, mode, aspect_ratio, resolution }
     });
   } catch (error) {
     if (error.message === "Insufficient credits") {
-      return new NextResponse("Insufficient credits", { status: 403 });
+      return NextResponse.json({ error: "Insufficient credits" }, { status: 403 });
+    }
+    if (error.message === "1080p requires a standard or premium credit tier") {
+      return NextResponse.json({ error: error.message }, { status: 403 });
     }
     console.error("[AI_SEEDANCE]", error);
-    return new NextResponse(error.message || "Internal Error", { status: 500 });
+    return NextResponse.json({ error: error.message || "Internal Error" }, { status: 500 });
   }
 }

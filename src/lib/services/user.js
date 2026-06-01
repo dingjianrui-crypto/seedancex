@@ -15,6 +15,14 @@ export const UserService = {
     return user?.credits || 0;
   },
 
+  async getCreditTier(userId) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { creditTier: true },
+    });
+    return user?.creditTier;
+  },
+
   /**
    * Add credits to a user
    */
@@ -33,22 +41,26 @@ export const UserService = {
    * Deduct credits from a user
    */
   async deductCredits(userId, amount = 1) {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { credits: true },
-    });
-
-    if (!user || user.credits < amount) {
-      throw new Error("Insufficient credits");
-    }
-
-    return await prisma.user.update({
-      where: { id: userId },
+    const result = await prisma.user.updateMany({
+      where: {
+        id: userId,
+        credits: {
+          gte: amount,
+        },
+      },
       data: {
         credits: {
           decrement: amount,
         },
       },
+    });
+
+    if (result.count === 0) {
+      throw new Error("Insufficient credits");
+    }
+
+    return prisma.user.findUnique({
+      where: { id: userId },
     });
   },
 

@@ -1,19 +1,28 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  FaDownload,
   FaMagic,
   FaCalendarAlt,
   FaExpandAlt,
-  FaVideo,
   FaMusic,
+  FaTrash,
 } from "react-icons/fa";
 import { useRouter } from "next/navigation";
 import { downloadMedia } from "@/lib/utils";
 import { FiDownload } from "react-icons/fi";
+
+async function requestCreations() {
+  const res = await fetch("/api/creations");
+  const data = await res.json();
+
+  if (!res.ok) throw new Error(data.error || "Failed to fetch creations.");
+  if (!Array.isArray(data)) throw new Error("Invalid creations response.");
+
+  return data;
+}
 
 export default function CreationsPage() {
   const { data: session, status } = useSession();
@@ -21,31 +30,80 @@ export default function CreationsPage() {
   const [creations, setCreations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
   const [selectedImage, setSelectedImage] = useState(null);
+  const [loadError, setLoadError] = useState(null);
 
   useEffect(() => {
-    if (status === "authenticated") {
-      fetchCreations();
-    } else if (status === "unauthenticated") {
-      router.push("/");
-    }
+    if (status !== "authenticated") return undefined;
+
+    let canceled = false;
+
+    requestCreations()
+      .then((data) => {
+        if (!canceled) {
+          setCreations(data);
+          setLoadError(null);
+        }
+      })
+      .catch((error) => {
+        console.error("Error fetching creations:", error);
+        if (!canceled) setLoadError(error.message);
+      })
+      .finally(() => {
+        if (!canceled) setLoading(false);
+      });
+
+    return () => {
+      canceled = true;
+    };
   }, [status]);
 
-  const fetchCreations = async () => {
+  const handleRetry = async () => {
     try {
-      const res = await fetch("/api/creations");
-      const data = await res.json();
-      if (res.ok) {
-        setCreations(data);
-      }
+      setLoading(true);
+      setLoadError(null);
+      const data = await requestCreations();
+      setCreations(data);
     } catch (error) {
       console.error("Error fetching creations:", error);
+      setLoadError(error.message);
     } finally {
       setLoading(false);
     }
   };
 
-  if (status === "loading" || loading) {
+  const getCreationVideoUrl = (creation) => creation.videoUrl;
+  const canDeleteCreation = (creation) => session?.user?.id === creation.userId;
+
+  const handleDeleteCreation = async (creation) => {
+    if (!canDeleteCreation(creation) || deletingId) return;
+    const confirmed = window.confirm("Remove this creation from your gallery?");
+    if (!confirmed) return;
+
+    try {
+      setDeletingId(creation.id);
+      const res = await fetch("/api/creations", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: creation.id }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data.error || "Delete failed.");
+
+      setCreations((items) => items.filter((item) => item.id !== creation.id));
+      if (selectedImage?.id === creation.id) {
+        setSelectedImage(null);
+      }
+    } catch (error) {
+      console.error("Error deleting creation:", error);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  if (status === "loading" || (status === "authenticated" && loading)) {
     return (
       <div className="flex-1 flex items-center justify-center bg-transparent">
         <motion.div
@@ -67,31 +125,46 @@ export default function CreationsPage() {
           </span>
         </div>
         <h1 className="text-3xl md:text-5xl font-semibold tracking-tight text-foreground">
-          MY CREATIONS
+          {session ? "MY CREATIONS" : "GALLERY"}
         </h1>
         <p className="text-muted font-medium text-xs uppercase tracking-widest leading-loose max-w-xl">
-          Your generative legacy, manifested and stored.{" "}
+          {session ? "Your generative legacy, manifested and stored." : "Sign in first to view your creations."}{" "}
           <br className="hidden md:block" />
-          Quick access to your visual nodes.
+          {session ? "Quick access to your visual nodes." : "Your gallery is private and only appears after login."}
         </p>
       </header>
 
       <div className="max-w-7xl mx-auto">
-        {creations.length === 0 ? (
-          <div className="py-32 flex flex-col items-center justify-center text-center space-y-8">
-            <div className="w-20 h-20 rounded-3xl bg-glass-bg border border-glass-border flex items-center justify-center shadow-sm">
-              <FaMagic className="text-3xl text-muted" />
+        {loadError ? (
+          <div className="py-32 flex flex-col items-center justify-center text-center space-y-6">
+            <div className="space-y-3">
+              <h3 className="text-xl font-bold italic text-red-500">ARCHIVE UNAVAILABLE</h3>
+              <p className="text-xs text-muted uppercase tracking-widest">{loadError}</p>
             </div>
-            <div className="space-y-4">
-              <h3 className="text-xl font-bold italic text-foreground">COLLECTION EMPTY</h3>
-              <button
-                onClick={() => router.push("/")}
-                className="px-8 py-3 bg-primary-600 hover:bg-primary-500 text-white rounded-xl font-black text-[10px] uppercase tracking-widest transition-all shadow-xl shadow-primary-500/20"
-              >
-                Start your first Manifestation
-              </button>
-            </div>
+            <button
+              onClick={handleRetry}
+              className="px-8 py-3 bg-primary-600 hover:bg-primary-500 text-white rounded-xl font-black text-[10px] uppercase tracking-widest transition-all shadow-xl shadow-primary-500/20"
+            >
+              Retry
+            </button>
           </div>
+        ) : creations.length === 0 ? (
+          session ? (
+            <div className="py-32 flex flex-col items-center justify-center text-center space-y-8">
+              <div className="w-20 h-20 rounded-3xl bg-glass-bg border border-glass-border flex items-center justify-center shadow-sm">
+                <FaMagic className="text-3xl text-muted" />
+              </div>
+              <div className="space-y-4">
+                <h3 className="text-xl font-bold italic text-foreground">COLLECTION EMPTY</h3>
+                <button
+                  onClick={() => router.push("/")}
+                  className="px-8 py-3 bg-primary-600 hover:bg-primary-500 text-white rounded-xl font-black text-[10px] uppercase tracking-widest transition-all shadow-xl shadow-primary-500/20"
+                >
+                  Start your first Manifestation
+                </button>
+              </div>
+            </div>
+          ) : null
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             <AnimatePresence>
@@ -104,9 +177,26 @@ export default function CreationsPage() {
                   className="group relative rounded-xl bg-glass-bg backdrop-blur-3xl border border-glass-border aspect-square cursor-pointer overflow-hidden shadow-sm hover:shadow-md transition-shadow transition-all"
                   onClick={() => setSelectedImage(item)}
                 >
+                  {canDeleteCreation(item) && (
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleDeleteCreation(item);
+                      }}
+                      disabled={deletingId === item.id}
+                      className="absolute top-3 left-3 z-20 w-8 h-8 rounded-lg bg-black/60 border border-white/10 text-white flex items-center justify-center transition-all hover:bg-red-500 disabled:opacity-50"
+                      aria-label="Delete creation"
+                    >
+                      {deletingId === item.id ? (
+                        <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      ) : (
+                        <FaTrash className="text-[10px]" />
+                      )}
+                    </button>
+                  )}
                   {item.status === "completed" ? (
                     <video
-                      src={item.imageUrl}
+                      src={getCreationVideoUrl(item)}
                       className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
                       muted
                       autoPlay
@@ -166,7 +256,7 @@ export default function CreationsPage() {
               <div className="flex w-full md:w-[50%] h-[50%] md:h-full p-2 bg-glass-bg backdrop-blur-3xl flex border-b md:border-b-0 md:border-r border-glass-border">
                 {selectedImage.status === "completed" ? (
                   <video
-                    src={selectedImage.imageUrl}
+                    src={getCreationVideoUrl(selectedImage)}
                     className="h-full w-full object-contain"
                     controls
                     autoPlay
@@ -226,8 +316,8 @@ export default function CreationsPage() {
                         <div className="text-xs text-foreground font-medium">{selectedImage.duration ? `${selectedImage.duration}s` : "5s"}</div>
                       </div>
                       <div className="space-y-1.5">
-                        <div className="text-[9px] font-semibold text-muted uppercase tracking-widest">Quality</div>
-                        <div className="text-xs text-foreground font-medium uppercase">{selectedImage.quality || "Basic"}</div>
+                        <div className="text-[9px] font-semibold text-muted uppercase tracking-widest">Model</div>
+                        <div className="text-xs text-foreground font-medium uppercase">{selectedImage.quality || "Seedance"}</div>
                       </div>
                     </div>
                     
@@ -238,7 +328,7 @@ export default function CreationsPage() {
                           <div className="grid grid-cols-4 gap-2">
                             {selectedImage.inputImages.map((img, i) => (
                               <div key={i} className="relative aspect-square rounded-md bg-glass-hover overflow-hidden border border-glass-border group">
-                                <img src={img} className="w-full h-full object-cover" />
+                                <img src={img} alt="" className="w-full h-full object-cover" />
                                 <div className="absolute top-0 right-0 p-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                   <a href={img} target="_blank" rel="noopener noreferrer" className="p-1 bg-black/60 rounded flex items-center justify-center">
                                     <FaExpandAlt className="text-[8px] text-white" />
@@ -306,7 +396,7 @@ export default function CreationsPage() {
                     onClick={async () => {
                       if (selectedImage.status !== "completed") return;
                       setDownloading(true);
-                      await downloadMedia(selectedImage.imageUrl, `seedance-${selectedImage.id}.mp4`);
+                      await downloadMedia(getCreationVideoUrl(selectedImage), `seedance-${selectedImage.id}.mp4`);
                       setDownloading(false);
                     }}
                     disabled={downloading || selectedImage.status !== "completed"}

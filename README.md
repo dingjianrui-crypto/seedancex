@@ -20,8 +20,6 @@ Seedance v2.0 Generator is not just another wrapper — it's a production-ready,
 - **Minimalist UX** — Custom dropdowns, high-fidelity micro-animations, and complete mobile-stacked responsiveness.
 - **Extensible API** — Easily swap out the underlying AI engine without breaking the application UI.
 
-![Seedance v2.0 Generator](https://cdn.muapi.ai/outputs/4cd1f49d48934d448e7f493f9d5e476e.png)
-
 ## ✨ Core Features
 
 - **Kinetic Video Studio** — Generate stunning visuals with text prompts. Includes options for advanced `Aspect Ratio` tuning, and tiered Resolutions (480p, 720p) tied directly to a flexible credit cost system.
@@ -40,18 +38,20 @@ Deploying an instance of Seedance v2.0 Generator to the web requires minimal con
 
 To successfully deploy and run, you must populate the following environment variables in your Vercel project settings:
 
-| Service               | Variable                             | Description & Source                                                                         |
-| :-------------------- | :----------------------------------- | :------------------------------------------------------------------------------------------- |
-| **Database**          | `DATABASE_URL`                       | PostgreSQL connection string ([Supabase](https://supabase.com) or [Neon](https://neon.tech)) |
-|                       | `DIRECT_URL`                         | Direct DB connection for Prisma migrations                                                   |
-| **NextAuth / Google** | `NEXTAUTH_SECRET`                    | Secure random string generated via `openssl rand -base64 32`                                 |
-|                       | `NEXTAUTH_URL`                       | Your production domain (e.g. `https://my-app.vercel.app`)                                    |
-|                       | `GOOGLE_CLIENT_ID`                   | Get from [Google Cloud Console](https://console.cloud.google.com/apis/credentials)           |
-|                       | `GOOGLE_CLIENT_SECRET`               | Get from [Google Cloud Console](https://console.cloud.google.com/apis/credentials)           |
-| **Stripe Billing**    | `STRIPE_SECRET_KEY`                  | Get from [Stripe Dashboard](https://dashboard.stripe.com/apikeys)                            |
-|                       | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Get from [Stripe Dashboard](https://dashboard.stripe.com/apikeys)                            |
-|                       | `STRIPE_WEBHOOK_SECRET`              | Webhook secret for resolving credit purchases                                                |
-| **AI Generator**      | `SEEDANCE_V2_API_KEY`                | Create an account and get key from [muapi.ai/access-keys](https://muapi.ai/access-keys)      |
+| Service               | Variable                             | Description & Source                                                                                                                                                                      |
+| :-------------------- | :----------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Database**          | `DATABASE_URL`                       | PostgreSQL connection string ([Supabase](https://supabase.com) or [Neon](https://neon.tech))                                                                                              |
+|                       | `DIRECT_URL`                         | Direct DB connection for Prisma migrations                                                                                                                                                |
+| **NextAuth / Google** | `NEXTAUTH_SECRET`                    | Secure random string generated via `openssl rand -base64 32`                                                                                                                              |
+|                       | `NEXTAUTH_URL`                       | App origin used by NextAuth redirects. Use `http://localhost:3000` locally, or your production domain (e.g. `https://my-app.vercel.app`) in production.                                    |
+|                       | `GOOGLE_CLIENT_ID`                   | Get from [Google Cloud Console](https://console.cloud.google.com/apis/credentials). For local OAuth, add `http://localhost:3000/api/auth/callback/google` to Authorized redirect URIs.    |
+|                       | `GOOGLE_CLIENT_SECRET`               | Get from [Google Cloud Console](https://console.cloud.google.com/apis/credentials). If your local dev server uses another port, update the Google redirect URI origin to match that port. |
+| **Stripe Billing**    | `STRIPE_SECRET_KEY`                  | Get from [Stripe Dashboard](https://dashboard.stripe.com/apikeys)                                                                                                                         |
+|                       | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Get from [Stripe Dashboard](https://dashboard.stripe.com/apikeys)                                                                                                                         |
+|                       | `STRIPE_WEBHOOK_SECRET`              | Webhook secret for resolving credit purchases. Configure Stripe to send webhooks to `http://localhost:3000/api/stripe/webhook` locally, or `https://your-domain.com/api/stripe/webhook` in production. |
+| **AI Generator**      | `ARK_API_KEY`                | Create an account and get key from [https://console.volcengine.com/home](https://console.volcengine.com/home)                                                                                                   |
+
+For payment lifecycle tracking, configure the Stripe webhook endpoint to receive `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.expired`, and `payment_intent.payment_failed`.
 
 ---
 
@@ -68,7 +68,7 @@ Ready to iterate locally? Setup is straightforward.
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/SamurAIGPT/seedance-2-generator
+git clone https://github.com/dingjianrui-crypto/seedancex
 cd seedance-v2-generator
 
 # 2. Install dependencies

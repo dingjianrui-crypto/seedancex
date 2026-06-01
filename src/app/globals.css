@@ -18,20 +18,52 @@
 }
 
 :root {
-  --background: linear-gradient(120deg, #e0c3fc 0%, #8ec5fc 100%);
-  --foreground: #1e293b;
-  --muted: #475569;
+  --background: linear-gradient(135deg, #040805 0%, #071407 52%, #020402 100%);
+  --foreground: #f4ffe8;
+  --muted: #9aae8c;
 
-  /* Default Theme (Indigo/Glossy) */
-  --primary-500: #6366f1;
-  --primary-600: #4f46e5;
-  --secondary-500: #a855f7;
+  /* Default Theme (Acid Forest) */
+  --primary-50: #f7ffe6;
+  --primary-100: #ebffc2;
+  --primary-200: #dbff8f;
+  --primary-300: #c9ff61;
+  --primary-400: #b7ff3c;
+  --primary-500: #a3f51d;
+  --primary-600: #77c900;
+  --secondary-500: #00f5a0;
+  --secondary-600: #00c782;
   
-  --solid-bg: #e2e8f0;
-  --glass-bg: rgba(255, 255, 255, 0.4);
-  --glass-border: rgba(255, 255, 255, 0.5);
-  --glass-hover: rgba(255, 255, 255, 0.6);
-  --bg-gradient: linear-gradient(120deg, #c7d2fe 0%, #818cf8 100%);
+  --solid-bg: #071006;
+  --glass-bg: rgba(8, 18, 8, 0.7);
+  --glass-border: rgba(183, 255, 60, 0.18);
+  --glass-hover: rgba(183, 255, 60, 0.1);
+  --bg-gradient:
+    radial-gradient(circle at 18% 12%, rgba(183, 255, 60, 0.18), transparent 30%),
+    radial-gradient(circle at 82% 8%, rgba(0, 245, 160, 0.15), transparent 32%),
+    linear-gradient(135deg, #040805 0%, #071407 52%, #020402 100%);
+}
+
+[data-theme="acid-forest"] {
+  --background: linear-gradient(135deg, #040805 0%, #071407 52%, #020402 100%);
+  --foreground: #f4ffe8;
+  --muted: #9aae8c;
+  --primary-50: #f7ffe6;
+  --primary-100: #ebffc2;
+  --primary-200: #dbff8f;
+  --primary-300: #c9ff61;
+  --primary-400: #b7ff3c;
+  --primary-500: #a3f51d;
+  --primary-600: #77c900;
+  --secondary-500: #00f5a0;
+  --secondary-600: #00c782;
+  --solid-bg: #071006;
+  --glass-bg: rgba(8, 18, 8, 0.7);
+  --glass-border: rgba(183, 255, 60, 0.18);
+  --glass-hover: rgba(183, 255, 60, 0.1);
+  --bg-gradient:
+    radial-gradient(circle at 18% 12%, rgba(183, 255, 60, 0.18), transparent 30%),
+    radial-gradient(circle at 82% 8%, rgba(0, 245, 160, 0.15), transparent 32%),
+    linear-gradient(135deg, #040805 0%, #071407 52%, #020402 100%);
 }
 
 [data-theme="emerald"] {

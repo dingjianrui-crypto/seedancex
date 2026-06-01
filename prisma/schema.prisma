@@ -40,28 +40,84 @@ model User {
   emailVerified DateTime?
   image         String?
   credits       Int        @default(10)
+  creditTier    String     @default("basic")
   accounts      Account[]
+  assets        Asset[]
   creations     Creation[]
+  payments      Payment[]
   sessions      Session[]
 }
 
+model Payment {
+  id                      String    @id @default(cuid())
+  stripeCheckoutSessionId String?   @unique
+  stripePaymentIntentId   String?   @unique
+  stripeCompletedEventId  String?   @unique
+  tierId                  String
+  amount                  Int
+  currency                String
+  credits                 Int
+  status                  String    @default("PENDING")
+  failureMessage          String?
+  paidAt                  DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+  userId                  String
+  user                    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
+model Asset {
+  id                  String    @id @default(cuid())
+  remoteAssetId       String    @unique
+  name                String
+  type                String
+  sourceBlobUrl       String
+  sourceBlobPathname  String?
+  status              String    @default("Processing")
+  errorCode           String?
+  errorMessage        String?
+  groupIdSnapshot     String
+  projectNameSnapshot String
+  lastCheckedAt       DateTime?
+  remoteCreatedAt     DateTime?
+  remoteUpdatedAt     DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  deletedAt           DateTime?
+  userId              String
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, deletedAt, createdAt])
+  @@index([status, lastCheckedAt])
+}
+
 model Creation {
-  id          String   @id @default(cuid())
-  prompt      String
-  imageUrl    String?
-  aspectRatio String?
-  resolution  String?
-  createdAt   DateTime @default(now())
-  userId      String
-  error       String?
-  requestId   String?  @unique
-  status      String   @default("processing")
-  duration    Int?
-  quality     String?
-  audioFiles  String[]
-  videoFiles  String[]
-  inputImages String[]
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                 String    @id @default(cuid())
+  prompt             String
+  savedUrl           String?
+  videoUrl           String?
+  aspectRatio        String?
+  resolution         String?
+  createdAt          DateTime  @default(now())
+  userId             String
+  error              String?
+  requestId          String?   @unique
+  status             String    @default("processing")
+  creditCost         Int       @default(0)
+  estimatedCredit    Int       @default(0)
+  totalTokens        Int?
+  creditTierSnapshot String    @default("basic")
+  prioritySnapshot   Int       @default(0)
+  refundedAt         DateTime?
+  duration           Int?
+  quality            String?
+  audioFiles         String[]
+  videoFiles         String[]
+  inputImages        String[]
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model VerificationToken {

@@ -4,70 +4,27 @@ import { useState } from "react";
 import { useSession, signIn } from "next-auth/react";
 import { motion } from "framer-motion";
 import { FaBolt, FaCoins, FaCheckCircle, FaStar } from "react-icons/fa";
-import { useRouter } from "next/navigation";
+import { CREDIT_TIERS } from "@/lib/billing-tiers";
 
 export default function PricingPage() {
   const { data: session, status } = useSession();
-  const router = useRouter();
   const [loadingTier, setLoadingTier] = useState(null);
 
-  const tiers = [
-    {
-      name: "Starter Manifest",
-      credits: 3000,
-      price: 15,
-      description: "Perfect for exploring the digital ether.",
-      features: [
-        "1k - 4k Resolution",
-        "Full Aspect Ratio Control",
-        "Permanent Storage",
-        "Basic Support",
-      ],
-      highlight: false,
-    },
-    {
-      name: "Power Engine",
-      credits: 7000,
-      price: 35,
-      description: "High-octane generation for serious creators.",
-      features: [
-        "Priority Extraction",
-        "Google Smart Search",
-        "Alpha Feature Access",
-        "Priority Support",
-      ],
-      highlight: true,
-    },
-    {
-      name: "Quantum Flow",
-      credits: 24000,
-      price: 120,
-      description: "Infinite manifestation for the visual elite.",
-      features: [
-        "Uncapped Resolution",
-        "Bulk Generation",
-        "API Direct Access",
-        "24/7 Concierge",
-      ],
-      highlight: false,
-    },
-  ];
-
-  const handleCheckout = async (price, credits, tierName) => {
+  const handleCheckout = async (tierId) => {
     if (status !== "authenticated") {
       signIn();
       return;
     }
 
     try {
-      setLoadingTier(tierName);
+      setLoadingTier(tierId);
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ price, credits }),
+        body: JSON.stringify({ tierId }),
       });
       const data = await res.json();
-      if (data.url) window.location.href = data.url;
+      if (data.url) window.location.assign(data.url);
     } catch (err) {
       console.error("Stripe error", err);
     } finally {
@@ -91,7 +48,7 @@ export default function PricingPage() {
       </header>
 
       <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-8 pb-20">
-        {tiers.map((tier, index) => (
+        {CREDIT_TIERS.map((tier, index) => (
           <motion.div
             key={tier.name}
             initial={{ opacity: 0, y: 20 }}
@@ -120,10 +77,10 @@ export default function PricingPage() {
 
             <div className="mb-8 flex items-end gap-1">
               <span className="text-4xl font-semibold tracking-tight text-foreground drop-shadow-sm">
-                ${tier.price}
+                ${(tier.amount / 100).toFixed(0)}
               </span>
               <span className="text-xs font-medium text-muted mb-1.5 uppercase tracking-widest">
-                / Month
+                One-time
               </span>
             </div>
 
@@ -154,17 +111,15 @@ export default function PricingPage() {
             </div>
 
             <button
-              onClick={() =>
-                handleCheckout(tier.price, tier.credits, tier.name)
-              }
-              disabled={loadingTier === tier.name}
+              onClick={() => handleCheckout(tier.id)}
+              disabled={loadingTier === tier.id}
               className={`w-full h-12 rounded-xl font-semibold text-[10px] uppercase tracking-widest flex items-center justify-center gap-3 transition-all ${
                 tier.highlight
                   ? "bg-primary-500 text-white hover:bg-primary-600 shadow-primary-500/20"
                   : "bg-[var(--solid-bg)] text-foreground hover:opacity-80 border border-glass-border"
               } disabled:opacity-20`}
             >
-              {loadingTier === tier.name ? (
+              {loadingTier === tier.id ? (
                 <div className="w-5 h-5 border-2 border-primary-600 border-t-transparent rounded-full animate-spin"></div>
               ) : (
                 <>

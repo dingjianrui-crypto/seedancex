@@ -6,15 +6,15 @@ import { Navbar } from "@/components/saas/Navbar";
 const font = Outfit({ subsets: ["latin"] });
 
 export const metadata = {
-  title: "Seedance v2.0 - Premium AI Generator",
+  title: "Seedance X - Premium AI Generator",
   description: "The next evolution of AI video generation.",
 };
 
 export default function RootLayout({ children }) {
-  const theme = process.env.NEXT_PUBLIC_THEME || 'indigo';
+  const theme = process.env.NEXT_PUBLIC_THEME || "acid-forest";
 
   return (
-    <html lang="en" className="h-dvh w-full transition-colors duration-500" data-theme={theme} style={{ colorScheme: 'light' }}>
+    <html lang="en" className="h-dvh w-full transition-colors duration-500" data-theme={theme} style={{ colorScheme: "dark" }}>
       <body className={`${font.className} h-dvh w-full flex flex-col antialiased transition-colors duration-500`}>
         <Providers>
           <Navbar />
