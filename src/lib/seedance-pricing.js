@@ -2,6 +2,8 @@ const CREDITS_PER_DOLLAR = 2000;
 const TOKENS_PER_MILLION = 1_000_000;
 const FRAME_RATE = 24;
 
+export const DEFAULT_CREDIT_PROFIT_FACTOR = 1.2;
+
 const OUTPUT_DIMENSIONS = {
   "480p": {
     "16:9": [864, 496],
@@ -70,6 +72,7 @@ export function getSeedanceCreditCost({
   model,
   resolution,
   hasVideoInput,
+  profitFactor = DEFAULT_CREDIT_PROFIT_FACTOR,
 }) {
   const pricing = PRICE_PER_MILLION_TOKENS[model];
   const pricePerMillionTokens =
@@ -78,9 +81,15 @@ export function getSeedanceCreditCost({
   if (!pricePerMillionTokens) {
     throw new Error("Unsupported Seedance pricing configuration");
   }
+  if (!Number.isFinite(profitFactor) || profitFactor <= 0) {
+    throw new Error("Credit profit factor must be a positive number");
+  }
 
   return Math.ceil(
-    (totalTokens * pricePerMillionTokens * CREDITS_PER_DOLLAR) /
+    (totalTokens *
+      pricePerMillionTokens *
+      CREDITS_PER_DOLLAR *
+      profitFactor) /
       TOKENS_PER_MILLION
   );
 }
@@ -91,6 +100,7 @@ export function getEstimatedSeedanceCreditCost({
   aspectRatio,
   model,
   hasVideoInput,
+  profitFactor = DEFAULT_CREDIT_PROFIT_FACTOR,
 }) {
   const totalTokens = getEstimatedVideoTokens({
     duration,
@@ -103,5 +113,6 @@ export function getEstimatedSeedanceCreditCost({
     model,
     resolution,
     hasVideoInput,
+    profitFactor,
   });
 }

@@ -18,7 +18,11 @@ import { FiDownload } from "react-icons/fi";
 import { motion, AnimatePresence } from "framer-motion";
 import { downloadMedia } from "@/lib/utils";
 import { ManagedAssetPicker } from "@/components/saas/ManagedAssetPicker";
-import { getEstimatedSeedanceCreditCost } from "@/lib/seedance-pricing";
+import {
+  DEFAULT_CREDIT_PROFIT_FACTOR,
+  getEstimatedSeedanceCreditCost,
+} from "@/lib/seedance-pricing";
+import { hasPremiumAssetsAccess } from "@/lib/premium-assets";
 
 const ASPECT_RATIOS = [
   { label: "1:1", value: "1:1" },
@@ -126,7 +130,11 @@ export default function Home() {
   const [seed, setSeed] = useState("-1");
   const [cameraFixed, setCameraFixed] = useState(false);
   const [generateAudio, setGenerateAudio] = useState(true);
+  const [creditProfitFactor, setCreditProfitFactor] = useState(
+    DEFAULT_CREDIT_PROFIT_FACTOR,
+  );
   const creditTier = session?.user?.creditTier || "basic";
+  const hasAssetsAccess = hasPremiumAssetsAccess(creditTier);
   const canSelect1080p =
     creditTier !== "basic" && model !== "seedance-2.0-fast";
   const effectiveResolution =
@@ -151,6 +159,34 @@ export default function Home() {
   const [statusMessage, setStatusMessage] = useState("");
   const [resultUrl, setResultUrl] = useState(null);
   const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function fetchPricingConfig() {
+      try {
+        const response = await fetch("/api/pricing-config", {
+          signal: controller.signal,
+        });
+        const data = await response.json();
+
+        if (
+          response.ok &&
+          Number.isFinite(data.creditProfitFactor) &&
+          data.creditProfitFactor > 0
+        ) {
+          setCreditProfitFactor(data.creditProfitFactor);
+        }
+      } catch (pricingConfigError) {
+        if (pricingConfigError.name !== "AbortError") {
+          console.error("[PRICING_CONFIG_ERROR]", pricingConfigError);
+        }
+      }
+    }
+
+    fetchPricingConfig();
+    return () => controller.abort();
+  }, []);
 
   const MODES = [
     { id: "text-to-video", label: "Text", fullLabel: "Text to Video", icon: FaBolt },
@@ -521,6 +557,7 @@ export default function Home() {
     aspectRatio,
     model,
     hasVideoInput: mode === "reference-to-video" && videoFiles.length > 0,
+    profitFactor: creditProfitFactor,
   });
 
   const activeMode = MODES.find((m) => m.id === mode) || MODES[0];
@@ -712,7 +749,7 @@ export default function Home() {
             </div>
             <div className="rounded-md bg-white/[0.055] p-3">
               <div className="text-[10px] font-medium uppercase text-muted">
-                Cost
+                Estimated Credits
               </div>
               <div className="mt-1 text-sm font-semibold text-foreground">
                 {estimatedCredit} CR
@@ -851,7 +888,9 @@ export default function Home() {
                       {imagesList.length}/{IMAGE_TO_VIDEO_MAX_IMAGES}
                     </span>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div
+                    className={`grid gap-2 ${hasAssetsAccess ? "grid-cols-2" : "grid-cols-1"}`}
+                  >
                     <input
                       type="file"
                       ref={fileInputRef}
@@ -881,25 +920,21 @@ export default function Home() {
                       )}
                       Upload
                     </button>
-                    <button
-                      onClick={() => {
-                        if (!session) {
-                          signIn();
-                          return;
+                    {hasAssetsAccess && (
+                      <button
+                        onClick={() => setAssetPickerType("Image")}
+                        disabled={
+                          imagesList.length >= IMAGE_TO_VIDEO_MAX_IMAGES
                         }
-                        setAssetPickerType("Image");
-                      }}
-                      disabled={
-                        imagesList.length >= IMAGE_TO_VIDEO_MAX_IMAGES
-                      }
-                      className="flex h-10 items-center justify-center gap-2 rounded-md border border-glass-border bg-white/[0.055] px-3 text-[10px] font-semibold uppercase tracking-wider text-secondary-500 transition-colors hover:bg-secondary-500 hover:text-slate-950 disabled:opacity-50"
-                    >
-                      <FaFolderOpen />
-                      My Assets
-                    </button>
+                        className="flex h-10 items-center justify-center gap-2 rounded-md border border-glass-border bg-white/[0.055] px-3 text-[10px] font-semibold uppercase tracking-wider text-secondary-500 transition-colors hover:bg-secondary-500 hover:text-slate-950 disabled:opacity-50"
+                      >
+                        <FaFolderOpen />
+                        My Assets
+                      </button>
+                    )}
                   </div>
                   {renderImageReferences("uploaded", "Uploaded Files")}
-                  {renderImageReferences("managed", "My Assets")}
+                  {hasAssetsAccess && renderImageReferences("managed", "My Assets")}
                 </div>
               )}
 
@@ -914,7 +949,9 @@ export default function Home() {
                         {referenceCount} selected
                       </span>
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div
+                      className={`grid gap-2 ${hasAssetsAccess ? "grid-cols-2" : "grid-cols-1"}`}
+                    >
                       <input
                         type="file"
                         ref={referenceInputRef}
@@ -941,19 +978,15 @@ export default function Home() {
                         )}
                         Upload
                       </button>
-                      <button
-                        onClick={() => {
-                          if (!session) {
-                            signIn();
-                            return;
-                          }
-                          setAssetPickerType("All");
-                        }}
-                        className="flex h-10 items-center justify-center gap-2 rounded-md border border-glass-border bg-white/[0.055] px-3 text-[10px] font-semibold uppercase tracking-wider text-secondary-500 transition-colors hover:bg-secondary-500 hover:text-slate-950"
-                      >
-                        <FaFolderOpen />
-                        My Assets
-                      </button>
+                      {hasAssetsAccess && (
+                        <button
+                          onClick={() => setAssetPickerType("All")}
+                          className="flex h-10 items-center justify-center gap-2 rounded-md border border-glass-border bg-white/[0.055] px-3 text-[10px] font-semibold uppercase tracking-wider text-secondary-500 transition-colors hover:bg-secondary-500 hover:text-slate-950"
+                        >
+                          <FaFolderOpen />
+                          My Assets
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -970,7 +1003,7 @@ export default function Home() {
                       <p className="text-[11px] text-muted">No image references selected.</p>
                     )}
                     {renderImageReferences("uploaded")}
-                    {renderImageReferences("managed", "My Assets")}
+                    {hasAssetsAccess && renderImageReferences("managed", "My Assets")}
                   </div>
 
                   <div className="space-y-3">
@@ -986,7 +1019,7 @@ export default function Home() {
                       <p className="text-[11px] text-muted">No video references selected.</p>
                     )}
                     {renderVideoReferences("uploaded")}
-                    {renderVideoReferences("managed", "My Assets")}
+                    {hasAssetsAccess && renderVideoReferences("managed", "My Assets")}
                   </div>
 
                   <div className="space-y-3">
@@ -1002,7 +1035,7 @@ export default function Home() {
                       <p className="text-[11px] text-muted">No audio references selected.</p>
                     )}
                     {renderAudioReferences("uploaded")}
-                    {renderAudioReferences("managed", "My Assets")}
+                    {hasAssetsAccess && renderAudioReferences("managed", "My Assets")}
                   </div>
                 </div>
               )}
@@ -1109,7 +1142,7 @@ export default function Home() {
                   <>
                     Generate
                   <span className="rounded-full bg-slate-950/25 px-2 py-0.5 text-[10px]">
-                      {estimatedCredit} Credits
+                      Estimated: {estimatedCredit} Credits
                     </span>
                   </>
                 )}
@@ -1220,11 +1253,13 @@ export default function Home() {
           </div>
         </section>
       </main>
-      <ManagedAssetPicker
-        type={assetPickerType}
-        onClose={() => setAssetPickerType(null)}
-        onSelect={addManagedAsset}
-      />
+      {hasAssetsAccess && (
+        <ManagedAssetPicker
+          type={assetPickerType}
+          onClose={() => setAssetPickerType(null)}
+          onSelect={addManagedAsset}
+        />
+      )}
       <style jsx global>{`
         .custom-scrollbar::-webkit-scrollbar {
           width: 0px;

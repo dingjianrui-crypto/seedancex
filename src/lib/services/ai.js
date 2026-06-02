@@ -7,6 +7,7 @@ import {
   getCreditTier,
 } from "@/lib/server/billing-tiers";
 import { getEstimatedSeedanceCreditCost } from "@/lib/seedance-pricing";
+import { getCreditProfitFactor } from "@/lib/server/credit-pricing";
 
 /**
  * Service to manage AI generations and interactions.
@@ -131,6 +132,7 @@ export const AIService = {
       aspectRatio: aspect_ratio,
       model: modelKey,
       hasVideoInput: selectedVideos.length > 0,
+      profitFactor: getCreditProfitFactor(),
     });
     const [images, videos, audio] = await Promise.all([
       AssetService.resolveGenerationReferences({

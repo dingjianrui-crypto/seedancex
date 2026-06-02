@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import { AssetService } from "@/lib/services/assets";
+import {
+  assertPremiumAssetsAccess,
+  PREMIUM_ASSETS_ACCESS_ERROR,
+} from "@/lib/server/premium-assets";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -9,6 +13,7 @@ export const maxDuration = 60;
 const ALLOWED_STATUSES = new Set(["Active", "Processing", "Failed"]);
 
 function getErrorStatus(error) {
+  if (error.message === PREMIUM_ASSETS_ACCESS_ERROR) return 403;
   if (error.message === "Asset not found.") return 404;
   if (
     error.message.includes("required") ||
@@ -28,6 +33,7 @@ export async function GET(req) {
   }
 
   try {
+    await assertPremiumAssetsAccess(session.user.id);
     const { searchParams } = new URL(req.url);
     const status = searchParams.get("status") || undefined;
 
@@ -48,7 +54,7 @@ export async function GET(req) {
     console.error("[ASSETS_GET_ERROR]", error);
     return NextResponse.json(
       { error: error.message || "Failed to fetch assets." },
-      { status: 500 },
+      { status: getErrorStatus(error) },
     );
   }
 }
@@ -61,6 +67,7 @@ export async function POST(req) {
   }
 
   try {
+    await assertPremiumAssetsAccess(session.user.id);
     const formData = await req.formData();
     const asset = await AssetService.createAsset({
       userId: session.user.id,
@@ -86,6 +93,7 @@ export async function DELETE(req) {
   }
 
   try {
+    await assertPremiumAssetsAccess(session.user.id);
     const { id } = await req.json();
     if (!id) {
       return NextResponse.json({ error: "Asset id is required." }, { status: 400 });

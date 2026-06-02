@@ -37,6 +37,7 @@ export const CREDIT_TIERS = [
     description: "Infinite manifestation for the visual elite.",
     features: [
       "Full power engine features",
+      "Manage your owned digital assets for reference",
       "Priority Generation Queue",
       "Priority Support",
     ],

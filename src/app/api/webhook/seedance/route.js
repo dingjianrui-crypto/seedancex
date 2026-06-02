@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSeedanceCreditCost } from "@/lib/seedance-pricing";
+import { getCreditProfitFactor } from "@/lib/server/credit-pricing";
 
 export const runtime = "nodejs";
 
@@ -75,6 +76,7 @@ async function completeCreationAndReconcile(creation, videoUrl, totalTokens) {
     model,
     resolution: creation.resolution,
     hasVideoInput: creation.videoFiles.length > 0,
+    profitFactor: getCreditProfitFactor(),
   });
 
   return prisma.$transaction(async (tx) => {

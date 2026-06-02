@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import config from "@/lib/config";
 import { StorageService } from "@/lib/storage";
 import { VolcengineAssetApi } from "./volcengine-assets";
+import { assertPremiumAssetsAccess } from "@/lib/server/premium-assets";
 
 const STATUS_PROCESSING = "Processing";
 const STATUS_ACTIVE = "Active";
@@ -274,6 +275,9 @@ export const AssetService = {
           .map((reference) => reference.assetId),
       ),
     ];
+    if (assetIds.length) {
+      await assertPremiumAssetsAccess(userId);
+    }
     const assets = assetIds.length
       ? await prisma.asset.findMany({
           where: {

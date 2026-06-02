@@ -50,6 +50,7 @@ To successfully deploy and run, you must populate the following environment vari
 |                       | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Get from [Stripe Dashboard](https://dashboard.stripe.com/apikeys)                                                                                                                         |
 |                       | `STRIPE_WEBHOOK_SECRET`              | Webhook secret for resolving credit purchases. Configure Stripe to send webhooks to `http://localhost:3000/api/stripe/webhook` locally, or `https://your-domain.com/api/stripe/webhook` in production. |
 | **AI Generator**      | `ARK_API_KEY`                | Create an account and get key from [https://console.volcengine.com/home](https://console.volcengine.com/home)                                                                                                   |
+|                       | `CREDIT_PROFIT_FACTOR`       | Credit charge multiplier applied to estimates and final Seedance usage. Defaults to `1.2`.                                                                                                                     |
 
 For payment lifecycle tracking, configure the Stripe webhook endpoint to receive `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.expired`, and `payment_intent.payment_failed`.
 
