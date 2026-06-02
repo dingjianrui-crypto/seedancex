@@ -18,7 +18,6 @@ import { useState } from "react";
 
 import { motion, AnimatePresence } from "framer-motion";
 import { LoginButton } from "./AuthButtons";
-import { hasPremiumAssetsAccess } from "@/lib/premium-assets";
 
 export function Navbar() {
   const { data: session, status } = useSession();
@@ -29,9 +28,7 @@ export function Navbar() {
   const navLinks = [
     { name: "Generation", href: "/" },
     { name: "Gallery", href: "/creations" },
-    ...(hasPremiumAssetsAccess(session?.user?.creditTier)
-      ? [{ name: "Assets", href: "/assets" }]
-      : []),
+    { name: "Assets", href: "/assets" },
     { name: "Pricing", href: "/pricing" },
   ];
 

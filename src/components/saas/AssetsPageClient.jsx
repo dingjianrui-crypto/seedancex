@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { signIn, useSession } from "next-auth/react";
+import Link from "next/link";
+import { useSession } from "next-auth/react";
 import Image from "next/image";
 import { motion } from "framer-motion";
 import {
@@ -10,12 +11,14 @@ import {
   FaCloudUploadAlt,
   FaDatabase,
   FaImage,
+  FaLock,
   FaMusic,
   FaShieldAlt,
   FaSyncAlt,
   FaTrash,
   FaVideo,
 } from "react-icons/fa";
+import { hasPremiumAssetsAccess } from "@/lib/premium-assets";
 
 const PAGE_SIZE = 12;
 
@@ -75,6 +78,7 @@ function StatusBadge({ status }) {
 
 export function AssetsPageClient() {
   const { data: session, status: sessionStatus } = useSession();
+  const hasAssetsAccess = hasPremiumAssetsAccess(session?.user?.creditTier);
   const fileInputRef = useRef(null);
   const [assets, setAssets] = useState([]);
   const [page, setPage] = useState(1);
@@ -87,7 +91,7 @@ export function AssetsPageClient() {
 
   const fetchAssets = useCallback(
     async ({ refresh = false } = {}) => {
-      if (!session) {
+      if (!hasAssetsAccess) {
         setAssets([]);
         setLoading(false);
         return;
@@ -114,7 +118,7 @@ export function AssetsPageClient() {
         setLoading(false);
       }
     },
-    [page, session],
+    [hasAssetsAccess, page],
   );
 
   useEffect(() => {
@@ -194,7 +198,7 @@ export function AssetsPageClient() {
     }
   };
 
-  if (sessionStatus === "loading" || loading) {
+  if (sessionStatus === "loading" || (hasAssetsAccess && loading)) {
     return (
       <div className="flex flex-1 items-center justify-center">
         <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary-500/30 border-t-primary-500" />
@@ -282,7 +286,7 @@ export function AssetsPageClient() {
           </div>
         </section>
 
-        {session ? (
+        {hasAssetsAccess ? (
           <>
             <section className="grid gap-3 rounded-xl border border-glass-border bg-glass-bg p-4 shadow-xl backdrop-blur-3xl md:grid-cols-[minmax(0,1fr)_auto] md:items-end md:p-5">
               <div className="space-y-2">
@@ -415,14 +419,31 @@ export function AssetsPageClient() {
             </nav>
           </>
         ) : (
-          <section className="rounded-xl border border-glass-border bg-glass-bg p-12 text-center backdrop-blur-3xl">
-            <h2 className="text-lg font-semibold text-foreground">Sign in to manage assets</h2>
-            <button
-              onClick={() => signIn()}
-              className="mt-5 rounded-md bg-primary-500 px-6 py-3 text-xs font-semibold uppercase tracking-widest text-white"
-            >
-              Sign In
-            </button>
+          <section className="overflow-hidden rounded-xl border border-primary-500/35 bg-[linear-gradient(135deg,rgba(163,245,29,0.14),rgba(0,245,160,0.08))] p-6 shadow-xl backdrop-blur-3xl md:p-10">
+            <div className="mx-auto flex max-w-3xl flex-col items-center gap-5 text-center">
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-primary-500/30 bg-primary-500/15 text-primary-400 shadow-lg shadow-primary-500/10">
+                <FaLock className="text-xl" />
+              </div>
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-[0.4em] text-primary-400">
+                  Premium Feature
+                </div>
+                <h2 className="mt-3 text-2xl font-semibold text-foreground">
+                  Unlock Your Managed Asset Library
+                </h2>
+                <p className="mt-3 text-sm leading-6 text-muted">
+                  Premium users can upload reusable image, video, and audio
+                  references, manage their private library, and select active
+                  assets directly during generation.
+                </p>
+              </div>
+              <Link
+                href="/pricing"
+                className="rounded-md bg-primary-500 px-6 py-3 text-xs font-semibold uppercase tracking-widest text-white transition-colors hover:bg-primary-600"
+              >
+                View Premium Plans
+              </Link>
+            </div>
           </section>
         )}
       </main>

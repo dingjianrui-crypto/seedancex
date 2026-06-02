@@ -1,7 +1,7 @@
 export const CREDIT_TIERS = [
   {
     id: "basic",
-    name: "Starter Manifest",
+    name: "Basic",
     credits: 40000,
     amount: 2000,
     currency: "usd",
@@ -15,13 +15,13 @@ export const CREDIT_TIERS = [
   },
   {
     id: "standard",
-    name: "Power Engine",
+    name: "Standard",
     credits: 100000,
     amount: 5000,
     currency: "usd",
     description: "High-octane generation for serious creators.",
     features: [
-      "Full starter features",
+      "Full basic features",
       "1080p Resolution",
       "Higher Priority Queue",
       "Basic Support",
@@ -30,13 +30,13 @@ export const CREDIT_TIERS = [
   },
   {
     id: "premium",
-    name: "Quantum Flow",
+    name: "Premium",
     credits: 200000,
     amount: 10000,
     currency: "usd",
     description: "Infinite manifestation for the visual elite.",
     features: [
-      "Full power engine features",
+      "Full standard features",
       "Manage your owned digital assets for reference",
       "Priority Generation Queue",
       "Priority Support",
