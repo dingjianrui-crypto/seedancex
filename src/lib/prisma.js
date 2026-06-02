@@ -4,9 +4,18 @@ import { Pool } from "pg";
 
 const globalForPrisma = globalThis;
 
+function getPoolConnectionString() {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) return connectionString;
+
+  const url = new URL(connectionString);
+  url.searchParams.delete("sslmode");
+  return url.toString();
+}
+
 const pool = new Pool(
   { 
-    connectionString: process.env.DATABASE_URL,
+    connectionString: getPoolConnectionString(),
     ssl: {
       rejectUnauthorized: false,
     }
